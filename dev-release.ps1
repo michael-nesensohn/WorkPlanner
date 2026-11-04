@@ -41,7 +41,7 @@ if (git tag --list $tag) { throw "Den Tag $tag gibt es schon." }
 
 Write-Host "3/4 Version $version einchecken, taggen und pushen ..." -ForegroundColor Cyan
 git add pyproject.toml src/workplanner/_version.py; Check "git add"
-git commit -m "Release $tag" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>" | Out-Null; Check "git commit"
+git commit -m "Release $tag" | Out-Null; Check "git commit"
 git tag $tag; Check "git tag"
 git push origin $branch; Check "git push"
 git push origin $tag; Check "git push (Tag)"
