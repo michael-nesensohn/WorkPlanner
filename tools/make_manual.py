@@ -238,7 +238,7 @@ def story(s: Screens) -> list:
     add(s.pic("uebersicht", "Die Seite „Heute“ mit Beispieldaten", max_h=11.5 * cm))
     add(table([
         ["Nr.", "Bereich", "Wofür"],
-        ["1", "Menüleiste", "Datei → Beenden; Einstellungen → Einstellungen und Stammdaten; Hilfe → Handbuch, Lizenz, Über WorkPlanner"],
+        ["1", "Menüleiste", "Datei → Beenden; Einstellungen → Einstellungen und Stammdaten; Hilfe → Handbuch, Lizenz, Über WorkPlanner / Updates"],
         ["2", "Uhrzeit", "aktuelle Tageszeit, auf jedem Reiter sichtbar. Reiter: Heute, Woche, Berichte (und DevOps, wenn aktiv)"],
         ["3", "Start-Karte", "laufende Aufgabe mit Notiz, Laufzeit, Start/Neu/Stopp und den Tätigkeiten"],
         ["4", "Einträge des Tages", "alle Buchungen des gewählten Tages als Tabelle, mit Knöpfen darunter"],
@@ -499,7 +499,21 @@ def story(s: Screens) -> list:
         "<b>Beispieldaten einfügen / entfernen</b>: legt Beispiel-Projekte, -Tätigkeiten und einen Beispieltag an bzw. "
         "entfernt genau diese wieder. Einträge, die Sie selbst auf einem Beispielprojekt gebucht haben, bleiben erhalten; "
         "das Projekt wird dann nur archiviert.",
-        "<b>Lizenz …</b> (vollständiger Text) und <b>Über WorkPlanner</b> (Version und Copyright).",
+        "<b>Lizenz …</b> (vollständiger Text).",
+        "<b>Über WorkPlanner / Updates …</b>: Version, Autor, Link zum Projekt auf GitHub und die Update-Prüfung (unten).",
+    ]))
+    add(P("Updates", H2))
+    add(P("WorkPlanner sucht <b>nie von allein</b> nach Updates und installiert nie ungefragt. Öffnen Sie "
+          "<b>Hilfe → Über WorkPlanner / Updates …</b> und klicken Sie auf <b>Nach Updates suchen</b>. Gibt es eine neuere "
+          "Version, sehen Sie die Änderungen und können mit einem weiteren Klick aktualisieren."))
+    add(s.pic("ueber", "Über WorkPlanner / Updates (Beispiel mit einer neueren Version)", width=9 * cm))
+    add(bullets([
+        "Der Installer wird nur von <font name='Mono'>github.com/michael-nesensohn/WorkPlanner</font> geladen und nur "
+        "gestartet, wenn seine Prüfsumme (SHA-256) mit der von GitHub gemeldeten übereinstimmt.",
+        "Beim Aktualisieren schließt sich WorkPlanner, der Installer ersetzt das Programm und startet es danach neu. "
+        "Ihre Daten bleiben unverändert; eine laufende Aufgabe läuft in der Datenbank weiter.",
+        "Dazu muss der Rechner GitHub erreichen. Ohne Internet meldet das Fenster das und tut sonst nichts. Dabei "
+        "sieht GitHub die IP-Adresse Ihres Rechners; sonst werden keine Daten gesendet.",
     ]))
     add(s.pic("lizenz", "Hilfe → Lizenz", width=9 * cm))
     add(P("WorkPlanner steht unter der <b>MIT-Lizenz</b>, Copyright (c) 2026 Michael Nesensohn. Kurz gesagt: Jeder darf "

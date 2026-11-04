@@ -1,9 +1,8 @@
-"""„Hilfe → Lizenz“ und „Hilfe → Über WorkPlanner“."""
+"""„Hilfe → Lizenz“."""
 from __future__ import annotations
 
-from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QMessageBox, QPlainTextEdit, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QPlainTextEdit, QVBoxLayout
 
-from .._version import __version__
 from ..license_text import LICENSE_TEXT, SUMMARY_DE, THIRD_PARTY
 
 
@@ -24,11 +23,3 @@ class LicenseDialog(QDialog):
         lay.addWidget(text, 1)
         lay.addWidget(buttons)
         self.text = text
-
-
-def show_about(parent=None) -> None:
-    QMessageBox.about(
-        parent, "Über WorkPlanner",
-        f"<b>WorkPlanner</b> {__version__}<br>Zeiterfassung und Tätigkeitsdokumentation<br><br>"
-        "Copyright (c) 2026 Michael Nesensohn<br>MIT-Lizenz – kostenlos nutzbar, veränderbar und weitergebbar, "
-        "<b>ohne Gewährleistung und ohne Haftung</b> des Autors.<br>Den vollständigen Text zeigt „Hilfe → Lizenz“.")

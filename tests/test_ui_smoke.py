@@ -870,7 +870,7 @@ def test_license_matches_the_file_and_help_menu_shows_it(qapp):
     w = MainWindow(TimeService(Database(), Clock(8, 0)))
     menus = {a.text().replace("&", ""): a.menu() for a in w.menuBar().actions()}
     assert [a.text().replace("&", "") for a in menus["Hilfe"].actions() if not a.isSeparator()] == ["Handbuch", "Handbuch im PDF-Programm öffnen", "Beispieldaten einfügen …",
-                                                                              "Beispieldaten entfernen …", "Lizenz …", "Über WorkPlanner"]
+                                                                              "Beispieldaten entfernen …", "Lizenz …", "Über WorkPlanner / Updates …"]
     from workplanner.ui.license_dialog import LicenseDialog
     d = LicenseDialog(w)
     assert "MIT License" in d.text.toPlainText() and "openpyxl" in d.text.toPlainText()

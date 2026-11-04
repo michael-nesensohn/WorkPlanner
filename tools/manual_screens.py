@@ -223,6 +223,12 @@ def main(out: Path) -> None:
     from workplanner.ui.license_dialog import LicenseDialog
     d = LicenseDialog(w)
     d.show(); pump(app, 0.3); shot(d, out / "lizenz.png"); d.close()
+    from workplanner import updater
+    from workplanner.ui.about_dialog import AboutDialog
+    release = updater.Release("v0.2.0", "0.2.0", "## Was ist neu\n- Beispiel: neue Funktion\n- Beispiel: Fehler behoben",
+                              updater.PAGE, "WorkPlanner-Setup-0.2.0.exe", updater.DOWNLOAD_PREFIX + "x", "0" * 64)
+    d = AboutDialog(w, fetch=lambda: release)
+    d.show(); d.check_btn.click(); pump(app, 0.8); shot(d, out / "ueber.png"); d.close()
 
     # --- Seiten -----------------------------------------------------------------------------
     w.tabs.setCurrentWidget(w.week)

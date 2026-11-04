@@ -77,6 +77,8 @@ Type: files; Name: "{app}\installiert.json"
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{#AppName} jetzt starten"; Flags: nowait postinstall skipifsilent
+; Update aus dem Programm („Hilfe → Über WorkPlanner / Updates“) ruft den Installer mit /RELAUNCH=1: danach neu starten
+Filename: "{app}\{#AppExe}"; Flags: nowait runasoriginaluser; Check: RelaunchRequested
 
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -86,6 +88,11 @@ begin
     SaveStringToFile(ExpandConstant('{app}\installiert.json'),
       '{' + #13#10 + '  "version": "{#AppVersion}",' + #13#10 +
       '  "installed": "' + GetDateTimeString('yyyy/mm/dd hh:nn', '-', ':') + '"' + #13#10 + '}', False);
+end;
+
+function RelaunchRequested(): Boolean;
+begin
+  Result := ExpandConstant('{param:RELAUNCH|0}') = '1';
 end;
 
 function DataDir(): String;

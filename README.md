@@ -30,6 +30,7 @@ Ein ausführliches **Handbuch** (PDF mit Bildschirmfotos) liegt dem Installer be
 - Teams-Anrufe erkennen und nach dem Ende als Eintrag anbieten
 - optional Azure DevOps: Features und Stories verknüpfen, Stunden nach „Completed Work“ übertragen
 - Wochenübersicht, Excel-Export mit wählbaren Spalten und Eintrag in einen Excel-Stundenzettel
+- Updates aus den GitHub-Releases, nur manuell (Hilfe → Über WorkPlanner / Updates), mit Prüfsummen-Kontrolle
 - Beim ersten Start auf Wunsch Beispieldaten zum Ausprobieren (jederzeit mit „Hilfe → Beispieldaten entfernen“ wieder weg)
 - Daten lokal in einer SQLite-Datei, DevOps-Token mit der Windows-Benutzerverschlüsselung geschützt
 

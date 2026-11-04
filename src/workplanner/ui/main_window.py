@@ -32,7 +32,8 @@ from .._version import __version__
 from ..call_monitor import CallMonitor
 from .call_dialog import CallBanner, CallDialog
 from .check_header import CheckHeader
-from .license_dialog import LicenseDialog, show_about
+from .about_dialog import AboutDialog
+from .license_dialog import LicenseDialog
 from .manual_window import ManualWindow
 from .tray import TrayIcon
 
@@ -699,7 +700,7 @@ class MainWindow(QMainWindow):
         help_menu.aboutToShow.connect(self._update_demo_actions)
         help_menu.addSeparator()
         help_menu.addAction("&Lizenz …").triggered.connect(lambda: LicenseDialog(self).exec())
-        help_menu.addAction("&Über WorkPlanner").triggered.connect(lambda: show_about(self))
+        help_menu.addAction("&Über WorkPlanner / Updates …").triggered.connect(self.show_about)
         self.master_dialog = _SizedDialog(self, self.svc.master_size(), self.svc.set_master_size)
         self.master_dialog.setWindowTitle("Stammdaten und Einstellungen")
         box = QVBoxLayout(self.master_dialog)
@@ -760,6 +761,16 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Beispieldaten", f"Entfernt: {result['entries']} Einträge, "
                                                        f"{result['projects']} Projekte, {result['activities']} Tätigkeiten."
                                 + extra)
+
+    def show_about(self) -> None:
+        """Hilfe → Über WorkPlanner / Updates: Updates werden nur hier und nur auf Klick gesucht und installiert."""
+        AboutDialog(self, install=self._install_update if self._integrated else None).exec()
+
+    def _install_update(self, path) -> None:
+        """Installer starten und WorkPlanner beenden; der Installer ersetzt die Dateien und startet das Programm neu."""
+        from .. import updater
+        updater.launch_installer(path)
+        self.quit_app()
 
     def _help_chapter(self) -> str | None:
         """Kapitel des Handbuchs zu dem, womit man gerade arbeitet (F1)."""
