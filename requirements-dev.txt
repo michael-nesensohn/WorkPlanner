@@ -1,0 +1,6 @@
+# Zum Entwickeln, Testen und Bauen (dev-test.ps1 und dev-build.ps1)
+-r requirements.txt
+pytest>=8
+pyinstaller>=6.10
+pillow>=10
+reportlab>=4   # Handbuch (tools/make_manual.py)

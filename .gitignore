@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+*.spec
+*.db
+assets/*.ico
+testdaten/*.xlsx
+.venv/
+.vscode/
+docs/*.pdf
