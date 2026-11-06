@@ -10,6 +10,7 @@ class CheckHeader(QHeaderView):
 
     def __init__(self, parent=None):
         super().__init__(Qt.Horizontal, parent)
+        self.setObjectName("checkHeader")  # Stylesheet lässt links Platz für das Kästchen
         self._state = Qt.Unchecked
         self.setSectionsClickable(True)
 

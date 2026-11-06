@@ -11,7 +11,7 @@ from ._version import __version__
 from .db import Database, default_db_path
 from .service import TimeService
 from . import autostart, single_instance
-from .ui.main_window import MainWindow
+from .ui.main_window import APP_STYLE, MainWindow
 
 SAMPLE_PROJECTS = [("Projekt A", "#4f8cff"), ("Projekt B", "#2ea36b"), ("Intern", "#e8a33d"),
                    ("Support", "#c05cc0"), ("Meeting", "#d9534f")]
@@ -44,6 +44,7 @@ def isolated_mode() -> bool:
 def main(db_path=None) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setStyle("Fusion")
+    app.setStyleSheet(APP_STYLE)  # modernes Design auch in allen Dialogen und im Handbuchfenster
     isolated = isolated_mode()
     if not isolated and single_instance.notify_running_instance():  # läuft schon (z. B. im Tray): dessen Fenster zeigen
         return 0

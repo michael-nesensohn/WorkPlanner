@@ -38,7 +38,55 @@ from .manual_window import ManualWindow
 from .tray import TrayIcon
 
 CLOCK_PX = 34  # muss zu QLabel#timer im Stylesheet passen
-STYLE = """
+# Allgemeines modernes Design für die ganze Anwendung (auch Dialoge); die Elemente mit Objektnamen unten
+# (Kacheln, Chips, Start/Stopp …) überschreiben es
+APP_STYLE = """
+QMainWindow, QDialog { background: #fafbfd; }
+QTabWidget::pane { border: none; border-top: 1px solid #d5deea; top: -1px; background: #fafbfd; }
+QTabBar::tab { background: transparent; color: #5b6b82; font-weight: 600; padding: 8px 18px; border: none;
+               border-bottom: 3px solid transparent; }
+QTabBar::tab:hover { color: #2F5597; background: #eef3fa; }
+QTabBar::tab:selected { color: #1f3a5f; border-bottom: 3px solid #4f8cff; }
+QHeaderView::section { background: #f4f7fb; color: #4a5a73; font-weight: 600; padding: 5px 8px; border: none;
+                       border-bottom: 1px solid #d5deea; border-right: 1px solid #e4e9f0; }
+QHeaderView#checkHeader::section:first { padding-left: 26px; }
+QTableView, QTreeView, QListView { border: 1px solid #d5deea; border-radius: 8px; gridline-color: #eef1f6;
+                                   selection-background-color: #dce8fb; selection-color: #1f3a5f; }
+QLineEdit, QPlainTextEdit, QTextEdit {
+    border: 1px solid #c9d3e0; border-radius: 7px; padding: 4px 8px; background: white;
+    selection-background-color: #b9d2fb; selection-color: #1f3a5f; }
+QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus { border-color: #4f8cff; }
+QLineEdit:disabled, QPlainTextEdit:disabled { background: #f4f6f9; color: #9aa6b6; }
+QGroupBox { border: 1px solid #d5deea; border-radius: 10px; margin-top: 14px; padding-top: 10px; background: #f8fafd; }
+QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; color: #2F5597; font-weight: 600; }
+QMenuBar { background: transparent; }
+QMenuBar::item { padding: 4px 10px; border-radius: 6px; background: transparent; }
+QMenuBar::item:selected { background: #dce8fb; }
+QMenu { background: white; border: 1px solid #d5deea; padding: 4px; }
+QMenu::item { padding: 6px 24px; border-radius: 6px; }
+QMenu::item:selected { background: #dce8fb; color: #1f3a5f; }
+QMenu::separator { height: 1px; background: #e4e9f0; margin: 4px 8px; }
+QScrollBar:vertical { width: 10px; background: transparent; margin: 0; }
+QScrollBar:horizontal { height: 10px; background: transparent; margin: 0; }
+QScrollBar::handle { background: #c3cddb; border-radius: 5px; min-height: 30px; min-width: 30px; }
+QScrollBar::handle:hover { background: #9fb0c7; }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+QProgressBar { border: 1px solid #c9d3e0; border-radius: 7px; text-align: center; background: white; }
+QProgressBar::chunk { background: #4f8cff; border-radius: 6px; }
+QToolTip { background: white; color: #1f3a5f; border: 1px solid #c9d3e0; padding: 4px 6px; }
+
+QPushButton { padding: 5px 14px; border: 1px solid #c9d3e0; border-radius: 8px; background: white; color: #1f3a5f; }
+QPushButton:hover { background: #eef3fa; border-color: #4f8cff; }
+QPushButton:pressed { background: #dce8fb; }
+QPushButton:default { background: #4f8cff; border-color: #4f8cff; color: white; font-weight: 600; }
+QPushButton:default:hover { background: #3f7cf0; }
+QPushButton:checked { background: #dce8fb; border-color: #4f8cff; }
+QPushButton:disabled { background: #f4f6f9; color: #9aa6b6; border-color: #e1e6ee; }
+QToolButton { padding: 3px 7px; border: 1px solid #c9d3e0; border-radius: 8px; background: white; }
+QToolButton:hover { background: #eef3fa; border-color: #4f8cff; }
+"""
+STYLE = APP_STYLE + """
 QMainWindow, QWidget { font-size: 13px; }
 QFrame#card { background: #f4f7fb; border: 1px solid #d5deea; border-radius: 10px; }
 QLabel#timer { font-family: Consolas, "Courier New", monospace; font-size: 34px; font-weight: 600;
@@ -53,6 +101,12 @@ QPushButton#chip:checked { background: #4f8cff; color: white; border-color: #4f8
 QPushButton#stop { background: #d9534f; color: white; font-weight: 600; padding: 8px 18px; border-radius: 8px; }
 QPushButton#new { background: #4f8cff; color: white; font-weight: 600; padding: 8px 18px; border-radius: 8px; }
 QPushButton#start { background: #2ea36b; color: white; font-weight: 600; padding: 8px 18px; border-radius: 8px; }
+QPushButton#soft { padding: 5px 14px; border: 1px solid #c9d3e0; border-radius: 14px; background: white;
+                   color: #2F5597; font-weight: 600; }
+QPushButton#soft:hover { background: #eef3fa; border-color: #4f8cff; }
+QPushButton#soft:pressed { background: #dce8fb; }
+QPushButton#soft:checked { background: #4f8cff; border-color: #4f8cff; color: white; }
+QPushButton#soft:disabled { color: #9aa6b6; }
 QTableWidget { gridline-color: #e4e9f0; alternate-background-color: #fafbfd; }
 """
 
@@ -229,7 +283,13 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout()
         row.addWidget(self.billable_cb)
         row.addWidget(self.since_label, 1)
-        self.time_btn = QPushButton("✎ Zeit ändern")
+        self.switch_btn = QPushButton("⇄ Umhängen", objectName="soft")
+        self.switch_btn.setCheckable(True)
+        self.switch_btn.setToolTip("Einschalten und dann ein Projekt, eine Tätigkeit oder ein DevOps-Item wählen: die "
+                                   "laufende Zeit wechselt dorthin, statt dass ein neuer Eintrag beginnt "
+                                   "(gilt nur für die nächste Auswahl)")
+        row.addWidget(self.switch_btn)
+        self.time_btn = QPushButton("✎ Zeit ändern", objectName="soft")
         self.time_btn.setToolTip("Startzeit oder bisher angefallene Zeit der laufenden Aufgabe anpassen")
         self.time_btn.clicked.connect(self._edit_running)
         row.addWidget(self.time_btn)
@@ -237,7 +297,7 @@ class MainWindow(QMainWindow):
         # Verknüpfung mit DevOps: sichtbar und unabhängig von der Notiz (die bleibt frei für die Beschreibung)
         self.devops_label = QLabel()
         self.devops_label.setStyleSheet("color:#2F5597;font-weight:600")
-        self.unlink_btn = QPushButton("✕ lösen")
+        self.unlink_btn = QPushButton("✕ lösen", objectName="soft")
         self.unlink_btn.setToolTip("Verknüpfung mit DevOps entfernen (die Stunden werden dann nicht mehr übertragen)")
         self.unlink_btn.clicked.connect(self._unlink_devops)
         link_title = QLabel("🔗 DevOps:")
@@ -465,11 +525,30 @@ class MainWindow(QMainWindow):
             return run
         return None
 
+    def _switch_target(self):
+        """Laufender Eintrag, der beim nächsten Klick umgehängt werden soll („⇄ Umhängen“ eingeschaltet)."""
+        run = self.svc.current()
+        return run if self.switch_btn.isChecked() and run and run.kind != PAUSE else None
+
+    def _switch_to(self, run, changes: dict) -> None:
+        """Laufende Zeit auf ein anderes Projekt / DevOps-Item umhängen; Notiz und Startzeit bleiben, eine zum
+        neuen Projekt nicht passende Tätigkeit entfällt. Der Schalter gilt nur für diese eine Auswahl."""
+        pid = changes.get("project_id", run.project_id)
+        if "activity_id" not in changes and run.activity_id not in {a["id"] for a in self.svc.activities_for(pid)}:
+            changes["activity_id"] = None
+        self.switch_btn.setChecked(False)
+        self._guard(self.svc.edit_entry, run.id, changes)
+
     def _pick_project(self, pid: int) -> None:
         self.sel_project = pid
         valid = {a["id"] for a in self.svc.activities_for(pid)}
         if self.sel_activity not in valid:
             self.sel_activity = None
+        switch = self._switch_target()
+        if switch:
+            self._switch_to(switch, {"project_id": pid, "devops_id": None})
+            self._rebuild_chips()
+            return
         run = self._unassigned_running()
         if run:  # bereits laufende Zeit bekommt das Projekt, kein neuer Eintrag
             self._guard(self.svc.edit_entry, run.id,
@@ -528,6 +607,11 @@ class MainWindow(QMainWindow):
         leer und frei für die Beschreibung. Läuft gerade unbeschriebene Zeit, bekommt sie die Verknüpfung."""
         self.sel_project = pid
         self.svc.remember_devops_title(item_id, title)
+        switch = self._switch_target()
+        if switch:
+            self._switch_to(switch, {"devops_id": item_id, "project_id": pid})
+            self._rebuild_chips()
+            return
         run = self._unassigned_running()
         if run:
             self._guard(self.svc.edit_entry, run.id, {"devops_id": item_id, "project_id": pid})
@@ -550,7 +634,9 @@ class MainWindow(QMainWindow):
         self.sel_activity = None if aid == self.sel_activity else aid
         run = self.svc.current()
         if run and run.kind != PAUSE and self.sel_activity is not None:
-            if run.activity_id is None and not run.note.strip():
+            if self._switch_target():
+                self._switch_to(run, {"activity_id": self.sel_activity})
+            elif run.activity_id is None and not run.note.strip():
                 self._guard(self.svc.edit_entry, run.id, {"activity_id": self.sel_activity})
             else:
                 self.note.clear()
@@ -1142,6 +1228,10 @@ class MainWindow(QMainWindow):
             self.devops_label.setText(f"#{linked} {self.svc.devops_title(linked)}".strip())
         self.stop_btn.setVisible(run is not None)
         self.time_btn.setVisible(run is not None)
+        can_switch = run is not None and run.kind != PAUSE
+        self.switch_btn.setVisible(can_switch)
+        if not can_switch:
+            self.switch_btn.setChecked(False)
         self.new_btn.setVisible(run is not None)
         self.start_btn.setVisible(run is None)
         self._update_live()

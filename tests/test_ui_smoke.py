@@ -83,6 +83,30 @@ def test_start_without_task_then_assign_project(qapp):
     assert dlg._changes() == {}
 
 
+def test_switch_button_moves_running_time_instead_of_starting_a_new_entry(qapp):
+    db = Database()
+    seed(db)
+    clock = Clock(8, 0)
+    svc = TimeService(db, clock)
+    w = MainWindow(svc)
+    first, second = [p["id"] for p in svc.projects()][:2]
+    w._pick_project(first)
+    w.note.setPlainText("Beschreibung")
+    w._note_edited()
+    clock.set(8, 40)
+    w._pick_project(second)               # ohne Schalter: neuer Eintrag
+    assert len(svc.day_entries(w.day)) == 2
+    clock.set(9, 0)
+    w.switch_btn.setChecked(True)
+    w._pick_project(first)                # mit Schalter: laufende Zeit wechselt das Projekt
+    entries = svc.day_entries(w.day)
+    assert len(entries) == 2 and svc.current().project_id == first
+    assert svc.current().start.hour == 8 and svc.current().start.minute == 40
+    assert not w.switch_btn.isChecked()   # gilt nur für eine Auswahl
+    w._pick_project(second)               # danach wieder normal: neuer Eintrag
+    assert len(svc.day_entries(w.day)) == 3
+
+
 def test_multiline_note(qapp):
     db = Database()
     seed(db)
