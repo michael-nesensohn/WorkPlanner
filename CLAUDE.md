@@ -10,7 +10,8 @@ Sprache der Oberfläche, Kommentare, Tests und Commits: **Deutsch**.
   (das Repo ist öffentlich), sondern in `CLAUDE.local.md` (wird nicht eingecheckt, liegt nur beim Entwickler).
   Vor jedem Veröffentlichen Dateien **und Verlauf** auf diese Namen prüfen (`git grep -i`, `git log --all -S<Name>`).
 - **Commits nur unter dem Namen des Entwicklers**, ohne `Co-Authored-By`- oder „Generated with“-Zeile.
-- **Nur der Entwickler pusht und veröffentlicht.** Keine Pull Requests/Issues von anderen vorgesehen.
+- **Nur der Entwickler pusht und veröffentlicht.** Issues von anderen sind erwünscht (Fehler, Wünsche), Pull Requests
+  werden nicht angenommen. In Issues und Antworten nie Firmen-/Kundendaten übernehmen oder zitieren.
   Veröffentlicht wird ausschließlich mit `dev-release.ps1`. Nie `git push --force`, nie Tags oder Releases löschen,
   nie Repo-Einstellungen ändern, ohne dass der Entwickler es ausdrücklich verlangt.
 - **Neue Oberfläche modern**: abgerundete Felder und Knöpfe, Akzentblau `#2F5597`, keine Standard-Optik von Qt. Textfarben

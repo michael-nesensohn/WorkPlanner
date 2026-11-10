@@ -41,8 +41,10 @@ MIT-Lizenz (siehe `LICENSE`): nutzen, ändern, weitergeben und verkaufen ist erl
 keine Haftung des Autors. Im Programm: Menü „Hilfe → Lizenz“.
 
 ## Mitwirken
-Der Quelltext ist öffentlich einsehbar. Änderungen am Projekt macht nur der Autor; Pull Requests und Issues von anderen
-werden nicht angenommen. Nach der MIT-Lizenz darfst du dir eine eigene Kopie (Fork) anlegen und sie ändern.
+Der Quelltext ist öffentlich einsehbar. **Fehler und Wünsche** bitte als
+[Issue](https://github.com/michael-nesensohn/WorkPlanner/issues) melden – dabei **keine Firmen-, Kunden- oder persönlichen
+Daten** (auch nicht auf Bildschirmfotos) angeben. Änderungen am Quelltext macht nur der Autor; Pull Requests werden nicht
+angenommen. Nach der MIT-Lizenz darfst du dir eine eigene Kopie (Fork) anlegen und sie ändern.
 
 ## Lokal testen (Entwicklungszustand)
 ```
