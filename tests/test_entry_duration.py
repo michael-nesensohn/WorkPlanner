@@ -260,3 +260,17 @@ def test_editing_the_end_also_makes_the_start_minute_exact(qapp):
     dlg._save()
     (saved,) = svc.day_entries(DAY)
     assert saved.end - saved.start == timedelta(minutes=10)
+
+
+def test_start_button_takes_the_end_of_the_previous_entry(qapp):
+    svc, (first, second) = setup([(d(8), d(9), "a"), (d(9, 30), d(10), "b")])
+    dlg = EntryDialog(svc, DAY, second)
+    assert dlg.start.width() <= 80 and dlg.end.width() <= 80          # schmale Zeitfelder
+    dlg.from_prev.click()
+    assert dlg.start.time() == QTime(9, 0) and dlg.end.time() == QTime(10, 0)
+    dlg = EntryDialog(svc, DAY, first)
+    dlg.from_prev.click()                                              # kein Vorgänger: Start bleibt
+    assert dlg.start.time() == QTime(8, 0)
+    dlg = EntryDialog(svc, DAY, None, default_start=d(11))             # neu: Ende des letzten Eintrags
+    dlg.from_prev.click()
+    assert dlg.start.time() == QTime(10, 0)

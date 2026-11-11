@@ -29,6 +29,8 @@ Sprache der Oberfläche, Kommentare, Tests und Commits: **Deutsch**.
   Formeln erhalten bleiben. **Profil** (`ExcelProfile`) beschreibt den Aufbau der Vorlage (Blattnamen, Projektnummer/-name,
   Grenzen der Projektzeilen per Text oder fester Zeile, Tage Mo–Sa/Mo–So automatisch); Export/Import als
   `.wpprofile.json`. Prüfbar ohne Excel über die Attrappen `FakeSheet`/`FakeBook` in `tests/test_excel_timesheet.py`.
+- `CHANGELOG.md` – pro Version ein Abschnitt `## <Version>`; vor jedem Release den Abschnitt der **nächsten** Version
+  ergänzen (er wird Release-Text auf GitHub und im Update-Hinweis des Programms).
 - `config.py` – versteckte Einstellungen aus `workplanner.ini` im Datenordner (z. B. `[export] show_start_end = 1`
   blendet die Export-Spalten Start/Ende ein). Absichtlich nicht in der Oberfläche.
 - `ui/` – PySide6. `excel_profile_dialog.py` ist der Assistent „Excel-Vorlage zuordnen“.

@@ -7,8 +7,8 @@ from datetime import date, datetime, time, timedelta
 from PySide6.QtCore import QDate, Qt, QTime, Signal
 from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (QCalendarWidget, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-                               QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QRadioButton, QTimeEdit,
-                               QVBoxLayout)
+                               QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
+                               QRadioButton, QTimeEdit, QVBoxLayout)
 
 from ..service import TimeService
 from .feature_panel import group_items
@@ -249,11 +249,16 @@ class EntryDialog(QDialog):
         self.end = QTimeEdit()
         for w in (self.start, self.end):
             w.setDisplayFormat("HH:mm")
+            w.setFixedWidth(72)   # „HH:mm“ braucht nicht mehr Platz
+        self.from_prev = QPushButton("⇤ Ende des Vorgängers")
+        self.from_prev.setToolTip("Start auf das Ende des vorherigen Eintrags setzen (lückenlos anschließen)")
+        self.from_prev.clicked.connect(self._start_at_previous_end)
         self.billable = QCheckBox("verrechenbar")
         self.billable.setChecked(entry.billable if entry else False)
         self.running = QCheckBox("läuft noch")
         self.duration = QTimeEdit()
         self.duration.setDisplayFormat("HH:mm")
+        self.duration.setFixedWidth(72)
         self.duration.setToolTip("Dauer von Start bis Ende (Std:Min). Ändert das Ende – bei einem laufenden "
                                  "Eintrag den Start; die anderen Einträge passen sich an.")
         self._sync = False  # verhindert Rückkopplung zwischen Start, Ende und Dauer
@@ -298,8 +303,11 @@ class EntryDialog(QDialog):
             form.addRow("", self.billable)
         for label, widget, radio in (("Start", self.start, self.anchor_start), ("Ende", self.end, self.anchor_end)):
             row = QHBoxLayout()
-            row.addWidget(widget, 1)
+            row.addWidget(widget)
             row.addWidget(radio)
+            if widget is self.start:
+                row.addWidget(self.from_prev)
+            row.addStretch(1)
             form.addRow(label, row)
         form.addRow("", self.running)
         form.addRow("Dauer (Std:Min)", self.duration)
@@ -322,6 +330,23 @@ class EntryDialog(QDialog):
         self.end.timeChanged.connect(self._on_times)
         self.duration.timeChanged.connect(self._on_duration)
         self._update()
+
+    def _previous_entry(self) -> Entry | None:
+        """Der Eintrag, der zeitlich direkt vor diesem liegt (beim Neuanlegen: vor dem eingestellten Start)."""
+        entries = [x for x in self.svc.day_entries(self.day) if x.end is not None]
+        if self.entry is not None:
+            entries = [x for x in entries if x.id != self.entry.id and x.start < self.entry.start]
+        else:
+            start = _to_dt(self.day, self.start.time())
+            entries = [x for x in entries if x.start < start]
+        return max(entries, key=lambda x: x.start, default=None)
+
+    def _start_at_previous_end(self) -> None:
+        prev = self._previous_entry()
+        if prev is None:
+            self.preview.setText("<span style='color:#b35c00'>Es gibt keinen vorherigen Eintrag.</span>")
+            return
+        self.start.setTime(_qtime(prev.end))
 
     def _project_changed(self, _=None) -> None:
         self._fill_activities(None)

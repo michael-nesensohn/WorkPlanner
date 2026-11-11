@@ -3,7 +3,7 @@
 #   .\dev-release.ps1                 baut den Installer und legt ein GitHub-Release mit Installer und Handbuch an
 #   .\dev-release.ps1 -Entwurf        legt das Release nur als Entwurf an (erst nach „Veröffentlichen“ auf GitHub sichtbar)
 #   .\dev-release.ps1 -OhneTests      überspringt die Python-Tests
-#   .\dev-release.ps1 -Notizen "..."  eigener Text statt der automatisch erzeugten Änderungsliste
+#   .\dev-release.ps1 -Notizen "..."  eigener Text statt des Abschnitts aus CHANGELOG.md
 #
 # Ablauf: 1) Arbeitsordner muss sauber sein (alles committet), 2) Tests, 3) dev-build.ps1 (erhöht die Version, baut den
 # Installer und das Handbuch), 4) die neue Version wird committet und mit dem Tag v<Version> gepusht, 5) das Release
@@ -49,6 +49,12 @@ git push origin $tag; Check "git push (Tag)"
 Write-Host "4/4 GitHub-Release anlegen ..." -ForegroundColor Cyan
 $ghArgs = @("release", "create", $tag, $setup, "--title", "WorkPlanner $version")
 if (Test-Path $manual) { $ghArgs += $manual }
+# Release-Text: -Notizen, sonst der Abschnitt "## <Version>" aus CHANGELOG.md, sonst die automatische Liste von GitHub
+if (-not $Notizen -and (Test-Path CHANGELOG.md)) {
+    $text = Get-Content CHANGELOG.md -Raw -Encoding UTF8
+    if ($text -match "(?ms)^## $([regex]::Escape($version))\s*\r?\n(.*?)(?=^## |\z)") { $Notizen = $Matches[1].Trim() }
+    else { Write-Host "Hinweis: In CHANGELOG.md fehlt der Abschnitt '## $version' - es wird die automatische Liste verwendet." -ForegroundColor Yellow }
+}
 if ($Notizen) { $ghArgs += @("--notes", $Notizen) } else { $ghArgs += "--generate-notes" }
 if ($Entwurf) { $ghArgs += "--draft" }
 gh @ghArgs; Check "gh release create"
