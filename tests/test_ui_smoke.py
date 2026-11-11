@@ -414,9 +414,9 @@ def test_running_time_dialog_rejects_impossible_start(qapp):
     dlg = RunningTimeDialog(svc, svc.current())
     dlg.start.setTime(QTime(9, 45))                # Start in der Zukunft
     assert not dlg.buttons.button(QDialogButtonBox.Save).isEnabled() and "Zukunft" in dlg.preview.text()
-    dlg.start.setTime(QTime(7, 0))                 # überdeckt den Vorgänger (ab 08:00) ganz
+    dlg.start.setTime(QTime(7, 0))                 # reicht vor den Vorgänger (ab 08:00): der bleibt erhalten
     assert dlg.buttons.button(QDialogButtonBox.Save).isEnabled()
-    assert "Entfällt" in dlg.preview.text()
+    assert "Entfällt" not in dlg.preview.text()
 
 
 def test_running_time_dialog_with_second_precise_entries(qapp):
@@ -456,8 +456,8 @@ def test_running_time_dialog_with_second_precise_entries(qapp):
     assert dlg.start.time() == QTime(10, 35) and save(dlg).isEnabled()
 
 
-def test_running_time_longer_elapsed_takes_over_earlier_entries(qapp):
-    """Screenshot-Fall: 1:16 angefallen -> Start 09:29, davor liegende Einträge werden gekürzt/entfernt."""
+def test_running_time_longer_elapsed_keeps_earlier_entries(qapp):
+    """Screenshot-Fall: 1:16 angefallen -> Start 09:29, eingetragene Einträge bleiben, die Aufgabe stoppt davor und läuft danach weiter."""
     from datetime import datetime
     from PySide6.QtCore import QTime
     from PySide6.QtWidgets import QDialogButtonBox
@@ -479,11 +479,12 @@ def test_running_time_longer_elapsed_takes_over_earlier_entries(qapp):
     dlg.elapsed.setTime(QTime(1, 16))
     assert dlg.start.time() == QTime(9, 29)
     assert dlg.buttons.button(QDialogButtonBox.Save).isEnabled()
-    assert "Entfällt" in dlg.preview.text() and "angepasst" in dlg.preview.text()
+    assert "Entfällt" not in dlg.preview.text()
     dlg._save()
     notes = [(e.note, e.start.strftime("%H:%M"), e.end.strftime("%H:%M") if e.end else None)
              for e in svc.day_entries(d(9, 0).date())]
-    assert notes == [("a", "09:26", "09:27"), ("b", "09:27", "09:29"), ("#30 Tests", "09:29", None)]
+    assert notes == [("a", "09:26", "09:27"), ("b", "09:27", "09:29"), ("#30 Tests", "09:29", "09:29"),
+                     ("c", "09:29", "09:38"), ("d", "09:38", "10:32"), ("#30 Tests", "10:32", None)]
 
 
 def test_table_allows_multi_select_delete(qapp, monkeypatch):

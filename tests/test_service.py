@@ -317,8 +317,8 @@ def test_target_end_starts_from_now_when_nothing_runs(env):
 @pytest.mark.parametrize("new_start,new_end,expected", [
     # ganz nach hinten: der bündige Vorgänger füllt die Lücke, die Folgeeinträge rücken mit
     ((10, 0), (11, 0), [("07:00", "10:00"), ("10:00", "11:00"), ("11:00", "12:00")]),
-    # ganz nach vorn: überdeckt den Vorgänger, der Folgeeintrag rückt nach
-    ((6, 0), (7, 0), [("06:00", "07:00"), ("07:00", "08:00")]),
+    # ganz nach vorn: überdeckt den Vorgänger, der bleibt erhalten (behält seine Dauer, folgt danach)
+    ((6, 0), (7, 0), [("06:00", "07:00"), ("07:00", "08:00"), ("08:00", "09:00")]),
     # überlappend nach hinten
     ((8, 30), (9, 30), [("07:00", "08:30"), ("08:30", "09:30"), ("09:30", "10:30")]),
     # kürzer

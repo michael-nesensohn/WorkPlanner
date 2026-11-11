@@ -112,29 +112,76 @@ def set_duration(entries: list[Entry], idx: int, duration: timedelta, now: datet
     return set_end(entries, idx, entries[idx].start + duration, now)
 
 
-def set_start(entries: list[Entry], idx: int, new_start: datetime, now: datetime) -> list[Entry]:
-    """Neuer Start des Eintrags.
+PUSH = "push"        # die überdeckten Einträge behalten ihre Dauer
+SHORTEN = "shorten"  # die überdeckten Einträge werden gekürzt (ihre Dauer schrumpft anteilig)
+
+
+def earlier_overlap(entries: list[Entry], idx: int, new_start: datetime) -> list[int]:
+    """Positionen der davor liegenden Einträge, die der frühere Start ganz überdeckt (Anfang liegt nicht vor dem
+    neuen Start). Ein nur zum Teil überdeckter Eintrag wird einfach gekürzt und braucht keine Rückfrage."""
+    if new_start >= entries[idx].start:
+        return []
+    return [i for i in range(idx) if entries[i].end is not None and entries[i].start >= new_start]
+
+
+def set_start(entries: list[Entry], idx: int, new_start: datetime, now: datetime,
+              overlap: str = PUSH) -> list[Entry]:
+    """Neuer Start des Eintrags; es entfällt nie ein Eintrag.
 
     * später: schloss der Vorgänger bündig an, wandert sein Ende mit
-    * früher: der Eintrag übernimmt die Zeit der davor liegenden Einträge. Wer vom neuen Start
-      teilweise überdeckt wird, endet dort, wer ganz überdeckt wird, entfällt.
+    * früher: ein nur zum Teil überdeckter Vorgänger endet am neuen Start
+    * früher, mit ganz überdeckten Einträgen (`overlap`):
+      - PUSH: sie behalten ihre Dauer. Eine laufende Aufgabe stoppt vor ihnen und läuft danach weiter; bei einem
+        abgeschlossenen Eintrag folgen sie hinter ihm (spätere Einträge rücken nach hinten).
+      - SHORTEN: sie werden (zusammen mit dem angeschnittenen Vorgänger) anteilig gekürzt und enden spätestens
+        am neuen Start.
     """
     e = entries[idx]
-    if new_start < e.start:
-        before: list[Entry] = []
-        for prev in entries[:idx]:
-            if prev.end is not None and prev.end <= new_start:
-                before.append(prev)                          # liegt davor, bleibt unberührt
-            elif prev.start < new_start:
-                before.append(replace(prev, end=new_start))  # wird gekürzt
-            # sonst ganz überdeckt: entfällt
-        out = before + [replace(e, start=new_start)] + entries[idx + 1:]
+    if new_start >= e.start:
+        out = list(entries)
+        if idx > 0 and entries[idx - 1].end == e.start:
+            out[idx - 1] = replace(entries[idx - 1], end=new_start)
+        out[idx] = replace(e, start=new_start)
         return _checked(out, now)
-    out = list(entries)
-    if idx > 0 and entries[idx - 1].end == e.start:
-        out[idx - 1] = replace(entries[idx - 1], end=new_start)
-    out[idx] = replace(e, start=new_start)
-    return _checked(out, now)
+    first = next((i for i in range(idx) if entries[i].end is not None and entries[i].end > new_start), idx)
+    before, block, after = entries[:first], entries[first:idx], entries[idx + 1:]
+    cut = block[0] if block and block[0].start < new_start else None      # angeschnittener Vorgänger
+    covered = block[1:] if cut else block                                 # ganz überdeckte Einträge
+    if not covered:
+        out = before + ([replace(cut, end=new_start)] if cut else []) + [replace(e, start=new_start)] + after
+        return _checked(out, now)
+    if overlap == SHORTEN:
+        lo = cut.start if cut else (before[-1].end if before else datetime.combine(new_start.date(), time.min))
+        span = new_start - lo
+        if span <= timedelta(0):
+            raise TimelineError("Davor ist kein Platz, um die Einträge zu kürzen.")
+        total = sum((c.end - c.start for c in block), timedelta())
+        shortened, done, cursor = [], timedelta(), lo
+        for c in block:
+            done += c.end - c.start
+            end = lo + timedelta(seconds=round(span.total_seconds() * done.total_seconds() / total.total_seconds()))
+            if end <= cursor:
+                raise TimelineError("Davor ist zu wenig Platz: ein Eintrag würde keine Dauer behalten.")
+            shortened.append(replace(c, start=cursor, end=end))
+            cursor = end
+        return _checked(before + shortened + [replace(e, start=new_start)] + after, now)
+    before = before + ([replace(cut, end=new_start)] if cut else [])
+    if e.running:                                           # stoppt vor den Einträgen, läuft danach weiter
+        out, cursor = list(before), new_start
+        for c in covered:
+            if c.start > cursor:
+                out.append(replace(e, start=cursor, end=c.start, id=None, auto_until=None, resume=""))
+            out.append(c)
+            cursor = max(cursor, c.end)
+        out.append(replace(e, start=cursor))
+        return _checked(out, now)
+    moved, t = [], e.end                                    # abgeschlossen: überdeckte folgen hinter ihm
+    for c in covered:
+        moved.append(replace(c, start=t, end=t + (c.end - c.start)))
+        t = moved[-1].end
+    if after and after[0].start < t:
+        after = _shift(after, 0, t - after[0].start)
+    return _checked(before + [replace(e, start=new_start)] + moved + after, now)
 
 
 def _snap(entries: list[Entry], new: Entry) -> Entry:

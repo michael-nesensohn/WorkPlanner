@@ -96,18 +96,40 @@ def test_earlier_start_trims_overlapped_predecessor_even_after_gap():
     assert times(out) == [("08:00", "08:30"), ("08:30", "10:00")]
 
 
-def test_earlier_start_swallows_fully_covered_entries():
-    day = [e(7, 0, 7, 30, id=1), e(8, 0, 9, 0, id=2), e(9, 0, 9, 40, id=3), e(9, 40, None, id=4)]
+def test_earlier_start_keeps_fully_covered_entries_with_their_duration():
+    day = [e(7, 0, 7, 30, id=1), e(8, 0, 9, 0, id=2), e(9, 0, 9, 40, id=3), e(9, 40, 10, 0, id=4)]
     out = tl.set_start(day, 3, t(8, 30), NOW)
-    assert times(out) == [("07:00", "07:30"), ("08:00", "08:30"), ("08:30", None)]
-    assert [x.id for x in tl.removed_entries(day, out)] == [3]
-    assert [x.id for x in out] == [1, 2, 4]
+    assert times(out) == [("07:00", "07:30"), ("08:00", "08:30"), ("08:30", "10:00"), ("10:00", "10:40")]
+    assert tl.removed_entries(day, out) == [] and [x.id for x in out] == [1, 2, 4, 3]
+
+
+def test_running_task_earlier_start_keeps_entries_and_continues_after_them():
+    day = [e(7, 0, 7, 30, id=1), e(8, 0, 9, 0, id=2), e(9, 0, 9, 40, id=3, project=2), e(9, 40, None, id=4)]
+    out = tl.set_start(day, 3, t(8, 30), NOW)
+    assert times(out) == [("07:00", "07:30"), ("08:00", "08:30"), ("08:30", "09:00"), ("09:00", "09:40"),
+                          ("09:40", None)]
+    assert [x.id for x in out] == [1, 2, None, 3, 4]
+    assert out[2].project_id == out[4].project_id == 1 and out[2].end is not None
+    assert tl.removed_entries(day, out) == []
 
 
 def test_earlier_start_covering_everything_before():
     day = [e(8, 0, 9, 0, id=1), e(9, 0, 10, 0, id=2)]
     out = tl.set_start(day, 1, t(7, 0), NOW)
-    assert times(out) == [("07:00", "10:00")] and [x.id for x in out] == [2]
+    assert times(out) == [("07:00", "10:00"), ("10:00", "11:00")] and [x.id for x in out] == [2, 1]
+
+
+def test_earlier_start_shorten_squeezes_covered_entries_proportionally():
+    day = [e(7, 0, 8, 0, id=1), e(8, 0, 10, 0, id=2), e(10, 0, 11, 0, id=3)]
+    out = tl.set_start(day, 2, t(7, 30), NOW, overlap=tl.SHORTEN)
+    assert times(out) == [("07:00", "07:10"), ("07:10", "07:30"), ("07:30", "11:00")]
+    assert [x.id for x in out] == [1, 2, 3]
+
+
+def test_earlier_start_overlap_detection_ignores_partial_overlap():
+    day = [e(8, 0, 9, 0, id=1), e(9, 0, 10, 0, id=2)]
+    assert tl.earlier_overlap(day, 1, t(8, 30)) == []
+    assert tl.earlier_overlap(day, 1, t(7, 0)) == [0]
 
 
 def test_earlier_start_cannot_leave_the_day():

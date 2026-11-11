@@ -40,3 +40,13 @@ def _qt_cleanup_at_end():
     gc.collect()
     app.processEvents()
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
+@pytest.fixture(autouse=True)
+def _no_blocking_overlap_question(monkeypatch):
+    """Die Rückfrage „Dauer beibehalten / Kürzen“ würde im Test blockieren: Standard ist „beibehalten“."""
+    try:
+        from workplanner.ui import dialogs
+    except ImportError:
+        return
+    monkeypatch.setattr(dialogs, "ask_overlap", lambda parent, svc, entry_id, changes: "push")

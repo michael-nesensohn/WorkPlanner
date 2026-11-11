@@ -7,12 +7,12 @@ from datetime import date, datetime, time, timedelta
 from PySide6.QtCore import QDate, Qt, QTime, Signal
 from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (QCalendarWidget, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-                               QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QRadioButton, QTimeEdit,
+                               QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QRadioButton, QTimeEdit,
                                QVBoxLayout)
 
 from ..service import TimeService
 from .feature_panel import group_items
-from ..timeline import PAUSE, TimelineError, Entry, changed_times, removed_entries
+from ..timeline import PAUSE, PUSH, SHORTEN, TimelineError, Entry, changed_times, removed_entries
 
 
 def preview_html(svc: TimeService, old: list[Entry], new: list[Entry], own_id: int | None) -> str:
@@ -33,6 +33,25 @@ def preview_html(svc: TimeService, old: list[Entry], new: list[Entry], own_id: i
 
 
 NO_LINK = "– keine Verknüpfung –"
+
+
+def ask_overlap(parent, svc: TimeService, entry_id: int, changes: dict) -> str | None:
+    """Reicht der neue Start in andere Einträge hinein, fragt der Dialog, wie deren Zeiten angepasst werden.
+    Gibt PUSH/SHORTEN zurück, `None` bei Abbruch. Es entfällt nie ein Eintrag."""
+    if not svc.start_overlaps(entry_id, changes):
+        return PUSH
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Question)
+    box.setWindowTitle("Andere Einträge überdeckt")
+    box.setText("Der neue Start reicht in andere Einträge hinein.\nWie sollen deren Zeiten angepasst werden?")
+    box.setInformativeText("Dauer beibehalten: die anderen Einträge behalten ihre Dauer (eine laufende Aufgabe stoppt "
+                           "davor und läuft danach weiter, sonst folgen sie hinter diesem Eintrag).\n"
+                           "Kürzen: die anderen Einträge werden kürzer und enden spätestens am neuen Start.")
+    keep = box.addButton("Dauer beibehalten", QMessageBox.AcceptRole)
+    cut = box.addButton("Kürzen", QMessageBox.AcceptRole)
+    box.addButton("Abbrechen", QMessageBox.RejectRole)
+    box.exec()
+    return PUSH if box.clickedButton() is keep else SHORTEN if box.clickedButton() is cut else None
 
 
 class CalendarDialog(QDialog):
@@ -150,8 +169,12 @@ class RunningTimeDialog(QDialog):
         self._pending = start
 
     def _save(self) -> None:
+        changes = {"start": getattr(self, "_pending", self._new_start())}
+        mode = ask_overlap(self, self.svc, self.entry.id, changes)
+        if mode is None:
+            return
         try:
-            self.svc.edit_entry(self.entry.id, {"start": getattr(self, "_pending", self._new_start())})
+            self.svc.edit_entry(self.entry.id, changes, mode)
         except TimelineError as ex:
             self.preview.setText(f"<span style='color:#c0392b'>⚠ {ex}</span>")
             return
@@ -490,7 +513,11 @@ class EntryDialog(QDialog):
                                             billable=self.billable.isChecked(),
                                             devops_id=self._devops_id()))
             else:
-                self.svc.edit_entry(self.entry.id, self._changes())
+                changes = self._changes()
+                mode = ask_overlap(self, self.svc, self.entry.id, changes)
+                if mode is None:
+                    return
+                self.svc.edit_entry(self.entry.id, changes, mode)
         except TimelineError as ex:
             self.preview.setText(f"<span style='color:#c0392b'>⚠ {ex}</span>")
             return

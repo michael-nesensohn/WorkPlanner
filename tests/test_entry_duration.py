@@ -110,7 +110,7 @@ def test_running_entry_duration_changes_the_start(qapp):
     assert svc.current().start == d(9, 30)
     dlg = EntryDialog(svc, DAY, svc.current())
     dlg.duration.setTime(QTime(2, 0))                       # 2 h angefallen -> Start 08:00, übernimmt den Vorgänger
-    assert dlg.start.time() == QTime(8, 0) and "Entfällt" in dlg.preview.text()
+    assert dlg.start.time() == QTime(8, 0) and "Entfällt" not in dlg.preview.text()   # Einträge bleiben erhalten
 
 
 def test_new_entry_has_a_default_duration_that_can_be_changed(qapp):
@@ -154,15 +154,16 @@ def test_duration_counted_back_from_the_end_moves_the_start(qapp):
     assert (a.end.hour, a.end.minute, b.start.hour, b.start.minute, b.end.hour) == (8, 30, 8, 30, 10)
 
 
-def test_longer_duration_from_the_end_takes_over_earlier_entries(qapp):
+def test_longer_duration_from_the_end_keeps_earlier_entries(qapp):
     svc, (first, second) = setup([(d(7), d(8), "vor"), (d(8), d(10), "x")])
     dlg = EntryDialog(svc, DAY, second)
     dlg.anchor_end.setChecked(True)
     dlg.duration.setTime(QTime(3, 30))                       # Start 06:30: überdeckt den Vorgänger ganz
-    assert dlg.start.time() == QTime(6, 30) and "Entfällt" in dlg.preview.text()
-    dlg._save()
-    (only,) = svc.day_entries(DAY)
-    assert (only.start.hour, only.start.minute, only.end.hour) == (6, 30, 10)
+    assert dlg.start.time() == QTime(6, 30) and "Entfällt" not in dlg.preview.text()
+    dlg._save()                                              # der überdeckte Eintrag bleibt, folgt hinter dem Eintrag
+    x, vor = svc.day_entries(DAY)
+    assert (x.start.hour, x.start.minute, x.end.hour) == (6, 30, 10)
+    assert (vor.start.hour, vor.end.hour) == (10, 11)
 
 
 def test_anchor_start_still_moves_the_end_and_followers(qapp):

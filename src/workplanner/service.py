@@ -562,7 +562,7 @@ class TimeService:
         return True
 
     # --- Bearbeiten (mit Vorschau) ----------------------------------------------------
-    def _edit_op(self, entry_id: int, changes: dict) -> Op:
+    def _edit_op(self, entry_id: int, changes: dict, overlap: str = tl.PUSH) -> Op:
         changes = dict(changes)
         if "project_id" in changes and "billable" not in changes:
             changes["billable"] = self.project_billable(changes["project_id"])
@@ -588,17 +588,27 @@ class TimeService:
             for what, value in steps:
                 # Position neu bestimmen: ein früherer Start kann Vorgänger entfernen und die Liste verschieben
                 idx = next(i for i, x in enumerate(entries) if x.id == entry_id)
-                entries = (tl.set_start if what == "start" else tl.set_end)(entries, idx, value, now)
+                entries = (tl.set_start(entries, idx, value, now, overlap) if what == "start"
+                           else tl.set_end(entries, idx, value, now))
             return entries
         return op
 
-    def preview_edit(self, entry_id: int, changes: dict):
+    def preview_edit(self, entry_id: int, changes: dict, overlap: str = tl.PUSH):
         day = self.db.get_entry(entry_id).start.date()
-        return self._run(day, self._edit_op(entry_id, changes), save=False)
+        return self._run(day, self._edit_op(entry_id, changes, overlap), save=False)
 
-    def edit_entry(self, entry_id: int, changes: dict) -> None:
+    def edit_entry(self, entry_id: int, changes: dict, overlap: str = tl.PUSH) -> None:
         day = self.db.get_entry(entry_id).start.date()
-        self._run(day, self._edit_op(entry_id, changes), save=True)
+        self._run(day, self._edit_op(entry_id, changes, overlap), save=True)
+
+    def start_overlaps(self, entry_id: int, changes: dict) -> bool:
+        """Reicht der neue Start in davor liegende Einträge hinein? Dann muss der Nutzer wählen, wie sie angepasst werden."""
+        start = changes.get("start")
+        if start is None:
+            return False
+        entries = self.day_entries(self.db.get_entry(entry_id).start.date())
+        idx = next((i for i, x in enumerate(entries) if x.id == entry_id), None)
+        return idx is not None and bool(tl.earlier_overlap(entries, idx, start))
 
     @staticmethod
     def _insert_op(new: Entry):
