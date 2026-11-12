@@ -3,6 +3,12 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.15
+- Eintrag bearbeiten: Start und Ende gleichzeitig früher setzen löst nicht mehr die Meldung „Zeiten dürfen nicht in der
+  Zukunft liegen“ aus, wenn das Ergebnis gültig ist.
+- Wird ein Eintrag (z. B. eine Pause) per Start und Ende mitten in eine längere Aufgabe gelegt, wird diese Aufgabe
+  aufgetrennt und läuft danach weiter; die übrigen Einträge verschieben sich nicht.
+
 ## 0.1.14
 - Eintrag bearbeiten/hinzufügen: die Projektliste ist alphabetisch sortiert und hat kein „–“ mehr; ohne Angabe gilt
   „Allgemein“.

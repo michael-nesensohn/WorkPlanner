@@ -427,3 +427,34 @@ def test_lunch_prompt_only_in_ask_mode_while_a_task_runs_and_without_a_pause(env
     clock.set(12, 5)
     svc.start_pause(30)
     assert not svc.lunch_prompt_due()                     # es gibt schon eine Pause
+
+
+def test_edit_start_and_end_earlier_in_one_go_does_not_trip_over_the_future(env):
+    """Früherer Start UND früheres Ende: der Zwischenstand (Eintrag bis zum alten Ende, überdeckte dahinter) läge
+    kurz in der Zukunft, das Endergebnis ist gültig."""
+    svc, clock, a, b, act = env
+    clock.set(12, 45)
+    d = lambda h, m=0: datetime(2026, 11, 2, h, m)  # noqa: E731
+    svc.db.save_day(DAY, [Entry(d(8), d(12), project_id=a, note="A"), Entry(d(12), d(12, 10), project_id=a, note="B"),
+                          Entry(d(12, 10), d(12, 40), kind=PAUSE), Entry(d(12, 40), None, project_id=a, note="R")])
+    pause = svc.day_entries(DAY)[2]
+    svc.edit_entry(pause.id, {"start": d(11, 46), "end": d(12, 15)})
+    assert [(r[0], r[1], r[2]) for r in rows(svc)] == [
+        ("08:00", "11:46", "work"), ("11:46", "12:15", "pause"), ("12:15", "12:25", "work"), ("12:25", None, "work")]
+
+
+def test_moving_an_entry_into_the_middle_of_a_task_splits_that_task(env):
+    """Eine Pause in eine lange Aufgabe gelegt: die Aufgabe wird aufgetrennt und läuft danach weiter."""
+    svc, clock, a, b, act = env
+    clock.set(14, 47)
+    d = lambda h, m=0: datetime(2026, 11, 2, h, m)  # noqa: E731
+    svc.db.save_day(DAY, [Entry(d(9, 30), d(14, 32), project_id=a, note="Elektrik"),
+                          Entry(d(14, 32), d(14, 34), project_id=b, note="B"),
+                          Entry(d(14, 34), d(14, 46), kind=PAUSE), Entry(d(14, 46), None, project_id=a, note="R")])
+    pause = svc.day_entries(DAY)[2]
+    svc.edit_entry(pause.id, {"start": d(11, 46), "end": d(12, 15)})
+    out = svc.day_entries(DAY)
+    assert [(r[0], r[1], r[2]) for r in rows(svc)] == [
+        ("09:30", "11:46", "work"), ("11:46", "12:15", "pause"), ("12:15", "14:32", "work"),
+        ("14:32", "14:34", "work"), ("14:46", None, "work")]
+    assert out[0].note == out[2].note == "Elektrik"

@@ -125,7 +125,7 @@ def earlier_overlap(entries: list[Entry], idx: int, new_start: datetime) -> list
 
 
 def set_start(entries: list[Entry], idx: int, new_start: datetime, now: datetime,
-              overlap: str = PUSH) -> list[Entry]:
+              overlap: str = PUSH, check: bool = True) -> list[Entry]:
     """Neuer Start des Eintrags; es entfällt nie ein Eintrag.
 
     * später: schloss der Vorgänger bündig an, wandert sein Ende mit
@@ -135,21 +135,26 @@ def set_start(entries: list[Entry], idx: int, new_start: datetime, now: datetime
         abgeschlossenen Eintrag folgen sie hinter ihm (spätere Einträge rücken nach hinten).
       - SHORTEN: sie werden (zusammen mit dem angeschnittenen Vorgänger) anteilig gekürzt und enden spätestens
         am neuen Start.
+    `check=False`: Zwischenschritt, die Zeitleiste wird erst nach dem folgenden Schritt geprüft (sonst scheitert z. B.
+    „früherer Start und früheres Ende“ an einem Zwischenstand, der kurz in der Zukunft läge).
     """
+    def fin(out: list[Entry]) -> list[Entry]:   # ohne `check` (Zwischenschritt einer Änderung von Start UND Ende)
+        return _checked(out, now) if check else out
+
     e = entries[idx]
     if new_start >= e.start:
         out = list(entries)
         if idx > 0 and entries[idx - 1].end == e.start:
             out[idx - 1] = replace(entries[idx - 1], end=new_start)
         out[idx] = replace(e, start=new_start)
-        return _checked(out, now)
+        return fin(out)
     first = next((i for i in range(idx) if entries[i].end is not None and entries[i].end > new_start), idx)
     before, block, after = entries[:first], entries[first:idx], entries[idx + 1:]
     cut = block[0] if block and block[0].start < new_start else None      # angeschnittener Vorgänger
     covered = block[1:] if cut else block                                 # ganz überdeckte Einträge
     if not covered:
         out = before + ([replace(cut, end=new_start)] if cut else []) + [replace(e, start=new_start)] + after
-        return _checked(out, now)
+        return fin(out)
     if overlap == SHORTEN:
         lo = cut.start if cut else (before[-1].end if before else datetime.combine(new_start.date(), time.min))
         span = new_start - lo
@@ -164,7 +169,7 @@ def set_start(entries: list[Entry], idx: int, new_start: datetime, now: datetime
                 raise TimelineError("Davor ist zu wenig Platz: ein Eintrag würde keine Dauer behalten.")
             shortened.append(replace(c, start=cursor, end=end))
             cursor = end
-        return _checked(before + shortened + [replace(e, start=new_start)] + after, now)
+        return fin(before + shortened + [replace(e, start=new_start)] + after)
     before = before + ([replace(cut, end=new_start)] if cut else [])
     if e.running:                                           # stoppt vor den Einträgen, läuft danach weiter
         out, cursor = list(before), new_start
@@ -174,14 +179,14 @@ def set_start(entries: list[Entry], idx: int, new_start: datetime, now: datetime
             out.append(c)
             cursor = max(cursor, c.end)
         out.append(replace(e, start=cursor))
-        return _checked(out, now)
+        return fin(out)
     moved, t = [], e.end                                    # abgeschlossen: überdeckte folgen hinter ihm
     for c in covered:
         moved.append(replace(c, start=t, end=t + (c.end - c.start)))
         t = moved[-1].end
     if after and after[0].start < t:
         after = _shift(after, 0, t - after[0].start)
-    return _checked(before + [replace(e, start=new_start)] + moved + after, now)
+    return fin(before + [replace(e, start=new_start)] + moved + after)
 
 
 def _snap(entries: list[Entry], new: Entry) -> Entry:

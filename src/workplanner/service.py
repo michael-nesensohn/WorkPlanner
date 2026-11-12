@@ -631,6 +631,13 @@ class TimeService:
                 entries = list(entries)
                 entries[idx] = replace(e, **attrs)
             new_start, new_end = changes.get("start", e.start), changes.get("end", e.end)
+            if (e.end is not None and new_end is not None and new_start != e.start and new_end != e.end
+                    and any(x.id != e.id and x.start < new_start and (x.end is None or new_end < x.end)
+                            for x in entries)):
+                # Der Eintrag wird mitten in einen anderen gelegt (z. B. eine Pause in eine lange Aufgabe): die Aufgabe
+                # wird aufgetrennt, der Rest danach läuft weiter; nichts sonst verschiebt sich.
+                moved = replace(entries[idx], start=new_start, end=new_end)
+                return tl.place([x for x in entries if x.id != e.id], moved, now)
             steps = []
             if new_start != e.start:
                 steps.append(("start", new_start))
@@ -640,11 +647,11 @@ class TimeService:
             # nach dem ersten Schritt ein Eintrag mit Start nach Ende. In allen anderen Fällen ist der Start zuerst gültig.
             if len(steps) == 2 and e.end is not None and new_start >= e.end:
                 steps.reverse()
-            for what, value in steps:
+            for n, (what, value) in enumerate(steps):
                 # Position neu bestimmen: ein früherer Start kann Vorgänger entfernen und die Liste verschieben
                 idx = next(i for i, x in enumerate(entries) if x.id == entry_id)
-                entries = (tl.set_start(entries, idx, value, now, overlap) if what == "start"
-                           else tl.set_end(entries, idx, value, now))
+                entries = (tl.set_start(entries, idx, value, now, overlap, check=n == len(steps) - 1)
+                           if what == "start" else tl.set_end(entries, idx, value, now))
             return entries
         return op
 
