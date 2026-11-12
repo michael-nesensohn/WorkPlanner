@@ -63,6 +63,23 @@ def test_header_data_appears_and_is_escaped():
     assert "Zeitbericht" in build_html(rows, timedelta(hours=8), D, D)
 
 
+def test_font_sizes_come_from_layout():
+    rows = [row(8, 9, "A", "T", "n")]
+    html = build_html(rows, timedelta(hours=8), D, D, layout={"heading": 14, "text": 9})
+    assert "font-size:14pt" in html and "font-size:18pt" in html and "font-size:9pt" in html
+    default = build_html(rows, timedelta(hours=8), D, D)
+    assert "font-size:12pt" in default and "font-size:8pt" in default
+
+
+def test_pdf_layout_setting_defaults_and_limits():
+    from workplanner.db import Database
+    from workplanner.service import TimeService
+    svc = TimeService(Database())
+    assert svc.pdf_layout == {"heading": 12, "text": 8, "landscape": True}
+    svc.set_pdf_layout(40, 1, False)
+    assert svc.pdf_layout == {"heading": 24, "text": 5, "landscape": False}
+
+
 def test_pdf_header_setting_roundtrip(tmp_path):
     from workplanner.db import Database
     from workplanner.service import TimeService

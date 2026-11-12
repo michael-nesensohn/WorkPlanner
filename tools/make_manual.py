@@ -444,8 +444,8 @@ def story(s: Screens) -> list:
     ]))
     add(P("PDF-Bericht", H2))
     add(P("Neben dem Knopf wählen Sie die Art. Es erscheinen nur die oben angehakten Spalten; vorn steht eine "
-          "<b>Summe je Projekt</b> (A–Z), dann folgt jeder Tag. Titel, Name, Firma/Abteilung und eine Zusatzzeile oben auf "
-          "dem Bericht legen Sie unter <b>Einstellungen → Einstellungen → PDF-Bericht: Kopfdaten</b> fest."))
+          "<b>Summe je Projekt</b> (A–Z), dann folgt jeder Tag. Der Bericht ist im Querformat mit schmalen Rändern. Titel, Name, Firma/Abteilung, eine Zusatzzeile, die "
+          "Schriftgrößen (Überschrift 12 pt, Text 8 pt) und das Querformat legen Sie unter <b>Einstellungen → Einstellungen → PDF-Bericht</b> fest."))
     add(table([
         ["Art", "Inhalt"],
         ["zusammengefasst", "je Tag steht jedes Projekt <b>einmal</b> mit der Gesamtdauer; darunter je Tätigkeit die "
@@ -475,7 +475,13 @@ def story(s: Screens) -> list:
         "Stellen Sie die Datei unter <b>Einstellungen → Einstellungen → Excel-Stundenzettel</b> ein und prüfen Sie "
         "sie mit „Prüfen“.",
         "Wählen Sie im Dialog den Zeitraum und klicken Sie <b>Vorschau</b>. Excel startet dazu unsichtbar im Hintergrund.",
-        "Prüfen Sie die Liste: orange Zeilen ersetzen vorhandene Werte. Unter „Nicht eingetragen“ stehen Gründe.",
+        "Prüfen Sie die Liste: orange Zeilen ersetzen vorhandene Werte (die Spalte „Bisher“ zeigt den alten Wert). "
+        "Der Reiter <b>So sieht es in Excel aus</b> zeigt das Blatt wie in Excel mit den neuen Werten darin "
+        "(grün neu, orange ersetzt, hellgrün neue Projektzeile). Unter „Nicht eingetragen“ stehen Gründe.",
+        "Steht an einer Stelle schon ein anderer Wert, fragt WorkPlanner, wer <b>Vorrang</b> hat: WorkPlanner (ersetzt) "
+        "oder Excel (der vorhandene Wert bleibt). Die Wahl lässt sich über „Steht schon ein Wert in Excel“ fest einstellen. "
+        "WorkPlanner merkt sich außerdem, was es eingetragen hat, und überspringt unveränderte Tage beim nächsten "
+        "Mal („Schon eingetragene Tage überspringen“; „Merker zurücksetzen“ vergisst sie).",
         "<b>In Excel eintragen</b> schreibt die Werte. Ist „Datei nach dem Eintragen speichern“ aus, bleibt die Änderung "
         "in Excel offen, und Sie speichern selbst.",
     ]))

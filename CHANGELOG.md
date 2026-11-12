@@ -3,6 +3,17 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.17
+- In Excel-Stundenzettel eintragen: Steht an einer Stelle schon ein anderer Wert, wird nachgefragt, wer Vorrang hat
+  (WorkPlanner ersetzt, oder Excel behält seinen Wert); die Wahl lässt sich im Dialog auch fest einstellen.
+- WorkPlanner merkt sich, was in die Excel-Datei eingetragen wurde, und überspringt unveränderte Tage beim nächsten Mal
+  (geänderte Werte kommen wieder; „Merker zurücksetzen“ und ein Schalter heben das auf).
+- In Excel-Stundenzettel eintragen: neben der Liste gibt es den Reiter „So sieht es in Excel aus“. Er zeigt das Blatt wie
+  in Excel (Farben, Breiten) und legt die geplanten Werte darüber: grün = neu, orange = ersetzt einen vorhandenen Wert
+  (der alte steht dahinter), hellgrün = neue Projektzeile. Vorhandene, nicht betroffene Werte bleiben sichtbar.
+- PDF-Bericht: Querformat und schmalere Ränder (weniger Seiten). In den Einstellungen („PDF-Bericht“) lassen sich
+  Schriftgröße für Überschrift (Standard 12 pt) und Text (Standard 8 pt) sowie das Querformat einstellen.
+
 ## 0.1.16
 - Berichte: neuer Knopf „Als PDF exportieren …“. Zusammengefasst steht je Tag jedes Projekt einmal mit der Gesamtdauer,
   darunter je Tätigkeit die verbundenen Notizen; alternativ „einzeln“ mit allen Einträgen. Es erscheinen nur die

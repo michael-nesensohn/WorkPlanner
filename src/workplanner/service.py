@@ -72,6 +72,45 @@ class TimeService:
                                                       for k in self.PDF_HEADER_KEYS}, ensure_ascii=False))
 
     @property
+    def pdf_layout(self) -> dict:
+        """Format des PDF-Berichts: Schriftgröße Überschrift/Text (pt) und Querformat. Standard: 12 / 8 / quer."""
+        try:
+            data = json.loads(self.db.get_setting("pdf_layout") or "{}")
+        except ValueError:
+            data = {}
+
+        def size(key: str, default: int) -> int:
+            try:
+                return min(24, max(5, int(data.get(key, default))))
+            except (TypeError, ValueError):
+                return default
+        return {"heading": size("heading", 12), "text": size("text", 8), "landscape": bool(data.get("landscape", True))}
+
+    def set_pdf_layout(self, heading: int, text: int, landscape: bool) -> None:
+        self.db.set_setting("pdf_layout", json.dumps({"heading": int(heading), "text": int(text),
+                                                      "landscape": bool(landscape)}))
+
+    @property
+    def excel_conflict(self) -> str:
+        """Steht in einer Excel-Zelle schon ein anderer Wert: „ask“ nachfragen, „tool“ WorkPlanner hat Vorrang
+        (ersetzen), „excel“ Excel hat Vorrang (vorhandenen Wert behalten)."""
+        value = self.db.get_setting("excel_conflict")
+        return value if value in ("tool", "excel") else "ask"
+
+    def set_excel_conflict(self, mode: str) -> None:
+        self.db.set_setting("excel_conflict", mode if mode in ("tool", "excel") else "ask")
+
+    def excel_exported(self, first: date, last: date) -> dict[tuple[str, str], float]:
+        return self.db.excel_exported(self.excel_path, first.isoformat(), last.isoformat())
+
+    def mark_excel_exported(self, rows: list[tuple[date, str, float]]) -> None:
+        """Merkt sich eingetragene (Tag, Projektschlüssel, Stunden), damit sie nicht doppelt eingetragen werden."""
+        self.db.mark_excel_exported(self.excel_path, [(d.isoformat(), k, h) for d, k, h in rows])
+
+    def clear_excel_exported(self, first: date, last: date) -> int:
+        return self.db.clear_excel_exported(self.excel_path, first.isoformat(), last.isoformat())
+
+    @property
     def excel_include_pause(self) -> bool:
         """Pausen-Einträge als Zeile „Pause“ in den Excel-Stundenzettel übernehmen (Standard: nein)."""
         return self.db.get_setting("excel_include_pause") == "1"

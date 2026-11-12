@@ -200,7 +200,7 @@ class MasterDataPage(QWidget):
         xl.addRow("", self.excel_pause)
         xl.addRow("", self.excel_status)
         lay.addWidget(xbox)
-        pbox = QGroupBox("PDF-Bericht: Kopfdaten")
+        pbox = QGroupBox("PDF-Bericht")
         pf = QFormLayout(pbox)
         self.pdf_fields: dict[str, QLineEdit] = {}
         for key, label, hint in (("title", "Titel", "Zeitbericht"), ("name", "Name", "z. B. Vor- und Nachname"),
@@ -210,6 +210,23 @@ class MasterDataPage(QWidget):
             edit.editingFinished.connect(self._save_pdf_header)
             self.pdf_fields[key] = edit
             pf.addRow(label, edit)
+        self.pdf_heading, self.pdf_text = QSpinBox(), QSpinBox()
+        for spin in (self.pdf_heading, self.pdf_text):
+            spin.setRange(5, 24)
+            spin.setSuffix(" pt")
+            spin.setFixedWidth(80)
+            spin.valueChanged.connect(self._save_pdf_layout)
+        self.pdf_landscape = QCheckBox("Querformat (weniger Seiten)")
+        self.pdf_landscape.clicked.connect(lambda _: self._save_pdf_layout())
+        sizes = QHBoxLayout()
+        sizes.addWidget(QLabel("Überschrift"))
+        sizes.addWidget(self.pdf_heading)
+        sizes.addSpacing(16)
+        sizes.addWidget(QLabel("Text"))
+        sizes.addWidget(self.pdf_text)
+        sizes.addStretch(1)
+        pf.addRow("Schriftgröße", sizes)
+        pf.addRow("", self.pdf_landscape)
         note = QLabel("Steht oben auf jedem PDF-Bericht (Berichte → „Als PDF exportieren …“). Leere Felder entfallen.")
         note.setStyleSheet("color:#667")
         pf.addRow("", note)
@@ -273,6 +290,12 @@ class MasterDataPage(QWidget):
         self.excel_profile_label.setText(self.svc.excel_profile.name)
         for key, value in self.svc.pdf_header.items():
             self.pdf_fields[key].setText(value)
+        layout = self.svc.pdf_layout
+        for w, value in ((self.pdf_heading, layout["heading"]), (self.pdf_text, layout["text"])):
+            w.blockSignals(True)
+            w.setValue(value)
+            w.blockSignals(False)
+        self.pdf_landscape.setChecked(layout["landscape"])
         self.db_warn.blockSignals(True)
         self.db_warn.setValue(self.svc.db_warn_mb)
         self.db_size.setText(f"aktuell {self.svc.db.size_bytes() / 1024 / 1024:.1f} MB")
@@ -290,6 +313,9 @@ class MasterDataPage(QWidget):
         self.target.setTime(QTime(tm // 60, tm % 60))
         for w in (self.pause_start, self.pause_min, self.target, self.default_project, self.lunch_mode):
             w.blockSignals(False)
+
+    def _save_pdf_layout(self) -> None:
+        self.svc.set_pdf_layout(self.pdf_heading.value(), self.pdf_text.value(), self.pdf_landscape.isChecked())
 
     def _save_pdf_header(self) -> None:
         self.svc.set_pdf_header({k: e.text() for k, e in self.pdf_fields.items()})
@@ -831,7 +857,8 @@ class ReportPage(QWidget):
             export_pdf(path, self._rows(with_pauses=True), self.svc.daily_target, a, b,
                        self.project.currentText() if self.project.currentData() is not None else "",
                        mode=self.pdf_mode.currentData(), columns=self._columns(),
-                       show_pauses=self.show_pauses.isChecked(), header=self.svc.pdf_header)
+                       show_pauses=self.show_pauses.isChecked(), header=self.svc.pdf_header,
+                       layout=self.svc.pdf_layout)
         except OSError as ex:
             QMessageBox.warning(self, "PDF", f"Datei konnte nicht geschrieben werden:\n{ex}")
             return

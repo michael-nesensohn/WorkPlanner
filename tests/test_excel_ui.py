@@ -214,12 +214,88 @@ def test_second_write_changes_nothing_new(qapp):
     cm = FakeWorkbookCM(FakeBook(sheet))
     for _ in range(2):
         dlg = ExcelExportDialog(svc, workbook_factory=cm.factory)
+        dlg.skip_done.setChecked(False)                      # ohne Merker: wird nochmal eingetragen, aber nichts ändert sich
         dlg._preview()
         assert wait(qapp, lambda: dlg.ok.isEnabled())
         dlg._write()
         assert wait(qapp, lambda: "✓" in dlg.status.text())
     assert sheet.v[8, 20] == 3.0 and sheet.v[10, 20] == 1.5 and sheet.v[10, 1] == "Interne Doku"
     assert len([w for w in sheet.writes if w[:2] == (10, 1)]) == 1             # die Zeile wurde nur einmal angelegt
+
+
+def test_exported_days_are_remembered_and_skipped_until_changed(qapp):
+    svc = setup()
+    cm = FakeWorkbookCM(FakeBook(FakeSheet("November")))
+    dlg = ExcelExportDialog(svc, workbook_factory=cm.factory)
+    dlg._preview()
+    assert wait(qapp, lambda: dlg.ok.isEnabled())
+    dlg._write()
+    assert wait(qapp, lambda: "✓" in dlg.status.text())
+    again = ExcelExportDialog(svc, workbook_factory=cm.factory)
+    again._preview()
+    assert "schon eingetragen" in again.status.text() and not again.ok.isEnabled() and again.table.rowCount() == 0
+    again.skip_done.setChecked(False)                         # Schalter aus: alles wieder da
+    again._preview()
+    assert wait(qapp, lambda: again.table.rowCount() == 2)
+    # eine Stunde mehr gebucht: nur dieser Wert erscheint wieder
+    svc.db.save_day(date(2026, 11, 2), svc.day_entries(date(2026, 11, 2)) + [
+        Entry(datetime(2026, 11, 2, 17), datetime(2026, 11, 2, 18), project_id=svc.db.list_projects()[0]["id"])])
+    third = ExcelExportDialog(svc, workbook_factory=cm.factory)
+    third._preview()
+    assert wait(qapp, lambda: third.table.rowCount() >= 1)
+
+
+def test_reset_marks_makes_days_exportable_again(qapp):
+    svc = setup()
+    cm = FakeWorkbookCM(FakeBook(FakeSheet("November")))
+    dlg = ExcelExportDialog(svc, workbook_factory=cm.factory)
+    dlg._preview()
+    assert wait(qapp, lambda: dlg.ok.isEnabled())
+    dlg._write()
+    assert wait(qapp, lambda: "✓" in dlg.status.text())
+    dlg._reset_marks()
+    assert "2 Merker" in dlg.status.text()
+    dlg._preview()
+    assert wait(qapp, lambda: dlg.table.rowCount() == 2)
+
+
+def _conflict_dialog(qapp, mode, answer=None):
+    svc = setup()
+    sheet = FakeSheet("November")
+    sheet.v[8, 20] = 5.0                                       # T8 hat schon 5 h; WorkPlanner hat 3 h
+    dlg = ExcelExportDialog(svc, workbook_factory=FakeWorkbookCM(FakeBook(sheet)).factory)
+    dlg.conflict.setCurrentIndex(dlg.conflict.findData(mode))
+    asked = []
+    dlg._ask_conflict = lambda n: asked.append(n) or answer
+    dlg._preview()
+    assert wait(qapp, lambda: dlg.table.rowCount() == 2)
+    return svc, sheet, dlg, asked
+
+
+def test_conflict_ask_tool_wins_replaces_existing(qapp):
+    svc, sheet, dlg, asked = _conflict_dialog(qapp, "ask", "tool")
+    dlg._write()
+    assert wait(qapp, lambda: "✓" in dlg.status.text())
+    assert asked == [1] and sheet.v[8, 20] == 3.0 and sheet.v.get((10, 20)) == 1.5
+
+
+def test_conflict_ask_excel_wins_keeps_existing_and_does_not_mark_it(qapp):
+    svc, sheet, dlg, asked = _conflict_dialog(qapp, "ask", "excel")
+    dlg._write()
+    assert wait(qapp, lambda: "✓" in dlg.status.text())
+    assert sheet.v[8, 20] == 5.0 and sheet.v.get((10, 20)) == 1.5      # T8 bleibt, die neue Zeile wird gefüllt
+    done = svc.excel_exported(date(2026, 11, 2), date(2026, 11, 2))
+    assert len(done) == 1                                              # nur der geschriebene Wert gilt als eingetragen
+
+
+def test_conflict_cancel_writes_nothing_and_fixed_modes_do_not_ask(qapp):
+    svc, sheet, dlg, asked = _conflict_dialog(qapp, "ask", None)
+    dlg._write()
+    assert sheet.writes == [] and asked == [1]
+    svc, sheet, dlg, asked = _conflict_dialog(qapp, "excel")
+    dlg._write()
+    assert wait(qapp, lambda: "✓" in dlg.status.text())
+    assert asked == [] and sheet.v[8, 20] == 5.0 and svc.excel_conflict == "excel"
 
 
 # --- Echtes Excel (nur auf Wunsch: WORKPLANNER_EXCEL_SAMPLE=<Pfad zu einer Muster-Datei>) --------------------
@@ -498,3 +574,38 @@ def test_test_button_is_active_while_the_detection_colours_are_shown(qapp, tmp_p
     dlg.edits["header_number"].setText("")                              # Fehler beim Testen: Knopf bleibt aus
     dlg.test_btn.click()
     assert not dlg.test_btn.isChecked() and "darf nicht leer sein" in dlg.status.text()
+
+
+def test_excel_view_shows_new_and_replaced_values_over_the_sheet(qapp):
+    from workplanner.excel_timesheet import SheetView
+    svc = setup()
+    sheet = FakeSheet("November")
+    sheet.v[8, 20] = 5.0                                          # T8 hat schon 5 h und wird ersetzt
+    loaded = []
+
+    def loader(path, name):
+        loaded.append(name)
+        return SheetView(sheet.grid(80, 60))
+    dlg = ExcelExportDialog(svc, workbook_factory=FakeWorkbookCM(FakeBook(sheet)).factory, view_loader=loader)
+    dlg._preview()
+    assert wait(qapp, lambda: dlg.table.rowCount() == 2)
+    dlg.tabs.setCurrentIndex(1)
+    assert wait(qapp, lambda: dlg.sheet_view.item(7, 19) is not None and "bisher" in dlg.sheet_view.item(7, 19).text())
+    assert loaded == ["November"] and "bisher 5" in dlg.sheet_view.item(7, 19).text()
+    assert dlg.sheet_view.item(9, 19).text() == "1,5"                  # T10: neuer Wert in der neuen Zeile
+    assert dlg.sheet_view.item(9, 0).text() == "Interne Doku"          # neue Projektzeile
+    assert dlg.sheet_view.item(7, 0).text() == "X1 - Farbvarianten"    # unveränderte Zellen bleiben sichtbar
+    assert "1 ersetzen vorhandene Werte" in dlg.sheet_note.text()
+
+
+def test_excel_view_reports_unreadable_file(qapp):
+    svc = setup()
+    cm = FakeWorkbookCM(FakeBook(FakeSheet("November")))
+
+    def loader(path, name):
+        raise OSError("gesperrt")
+    dlg = ExcelExportDialog(svc, workbook_factory=cm.factory, view_loader=loader)
+    dlg._preview()
+    assert wait(qapp, lambda: dlg.table.rowCount() == 2)
+    dlg.tabs.setCurrentIndex(1)
+    assert wait(qapp, lambda: "nicht lesbar" in dlg.sheet_note.text())

@@ -14,6 +14,8 @@ from pathlib import Path
 ACCENT = "#2F5597"
 WEEKDAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
 SUMMARY, DETAIL = "summary", "detail"
+DEFAULT_LAYOUT = {"heading": 12, "text": 8, "landscape": True}   # Schriftgrößen in pt
+_size = {"heading": 12, "text": 8}   # gilt für den gerade erzeugten Bericht (build_html setzt es)
 DEFAULT_COLUMNS = ["date", "duration", "billable", "project_number", "project", "activity", "note", "devops"]
 
 
@@ -54,11 +56,13 @@ def day_projects(rows: list[dict]) -> list[dict]:
 
 def _th(text: str, align: str = "left", width: str = "") -> str:
     w = f' width="{width}"' if width else ""
-    return f'<th align="{align}"{w} bgcolor="{ACCENT}" style="color:#ffffff;padding:3px">{escape(text)}</th>'
+    return (f'<th align="{align}"{w} bgcolor="{ACCENT}" '
+            f'style="color:#ffffff;padding:3px;font-size:{_size["text"]}pt">{escape(text)}</th>')
 
 
 def _td(text: str, align: str = "left", style: str = "", extra: str = "") -> str:
-    return f'<td align="{align}" valign="top"{extra} style="color:#222222;padding:3px;{style}">{escape(text)}</td>'
+    return (f'<td align="{align}" valign="top"{extra} '
+            f'style="color:#222222;padding:3px;font-size:{_size["text"]}pt;{style}">{escape(text)}</td>')
 
 
 def _table(inner: str, size: str = "") -> str:
@@ -127,12 +131,12 @@ def _detail_table(day_rows: list[dict], cols: set[str], show_pauses: bool) -> st
     for r in shown:
         style = "color:#777777;" if r["kind"] == "pause" else ""
         rows.append("<tr>" + "".join(_td(f(r), a, style) for _, a, _, f in spec) + "</tr>")
-    return _table("".join(rows), "font-size:8pt;")
+    return _table("".join(rows))
 
 
 def build_html(rows: list[dict], daily_target: timedelta, first: date, last: date, project_name: str = "",
                mode: str = SUMMARY, columns: list[str] | None = None, show_pauses: bool = False,
-               header: dict[str, str] | None = None) -> str:
+               header: dict[str, str] | None = None, layout: dict | None = None) -> str:
     """HTML des Berichts. `header`: Kopfdaten aus den Einstellungen (title, name, company, extra). `rows` wie von `TimeService.report_rows` (inklusive Pausen); `columns` sind die angehakten
     Schlüssel aus `export.COLUMNS`."""
     cols = set(DEFAULT_COLUMNS if columns is None else columns)
@@ -140,17 +144,20 @@ def build_html(rows: list[dict], daily_target: timedelta, first: date, last: dat
     total = sum((r["duration"] for r in work_rows), timedelta())
     billable = sum((r["duration"] for r in work_rows if r["billable"]), timedelta())
     _, pause_total = _day_totals(rows)
+    lay = {**DEFAULT_LAYOUT, **(layout or {})}
+    _size.update(heading=lay["heading"], text=lay["text"])
+    h, n = lay["heading"], lay["text"]
     head = {k: (v or "").strip() for k, v in (header or {}).items()}
     lines = [f"{label}: <b>{escape(head[key])}</b>" for key, label in
              (("name", "Name"), ("company", "Firma / Abteilung")) if head.get(key)]
     if head.get("extra"):
         lines.append(escape(head["extra"]))
-    out = [f'<h1 style="color:{ACCENT}">{escape(head.get("title") or "Zeitbericht")}</h1>']
+    out = [f'<h1 style="color:{ACCENT};font-size:{h + 4}pt">{escape(head.get("title") or "Zeitbericht")}</h1>']
     if lines:
-        out.append(f'<p style="color:#222222">{"<br>".join(lines)}</p>')
+        out.append(f'<p style="color:#222222;font-size:{n}pt">{"<br>".join(lines)}</p>')
     project = f" · Projekt: <b>{escape(project_name)}</b>" if project_name else ""
     billable_text = f" · davon verrechenbar: <b>{fmt_hm(billable)} h</b>" if "billable" in cols else ""
-    out.append(f'<p style="color:#222222">Zeitraum: <b>{first:%d.%m.%Y} – {last:%d.%m.%Y}</b>{project}<br>'
+    out.append(f'<p style="color:#222222;font-size:{n}pt">Zeitraum: <b>{first:%d.%m.%Y} – {last:%d.%m.%Y}</b>{project}<br>'
                f'Arbeitszeit (ohne Pausen): <b>{fmt_hm(total)} h</b>{billable_text}'
                f' · Pausen: {fmt_hm(pause_total)} h</p>')
 
@@ -164,7 +171,7 @@ def build_html(rows: list[dict], daily_target: timedelta, first: date, last: dat
         spec = ([("Projektnr.", "left")] if "project_number" in cols else []) + [("Projekt", "left")] \
             + ([("Dauer", "right")] if "duration" in cols else []) \
             + ([("davon verrechenbar", "right")] if "billable" in cols else [])
-        out.append(f'<h2 style="color:{ACCENT}">Summe je Projekt</h2>')
+        out.append(f'<h2 style="color:{ACCENT};font-size:{h}pt">Summe je Projekt</h2>')
         body = ["<tr>" + "".join(_th(t, a) for t, a in spec) + "</tr>"]
 
         def line(number, name, d, b, style=""):
@@ -181,26 +188,31 @@ def build_html(rows: list[dict], daily_target: timedelta, first: date, last: dat
     for d in sorted({r["date"] for r in rows}):
         day_rows = [r for r in rows if r["date"] == d]
         work, pause = _day_totals(day_rows)
-        out.append(f'<h3 style="color:{ACCENT}">{WEEKDAYS[d.weekday()]}, {d:%d.%m.%Y}'
+        out.append(f'<h3 style="color:{ACCENT};font-size:{h}pt">{WEEKDAYS[d.weekday()]}, {d:%d.%m.%Y}'
                    f' &nbsp;–&nbsp; Arbeitszeit {fmt_hm(work)} h{f" · Pausen {fmt_hm(pause)} h" if pause else ""}</h3>')
         out.append(_summary_table(day_rows, cols) if mode == SUMMARY else _detail_table(day_rows, cols, show_pauses))
     if not rows:
-        out.append('<p style="color:#555555">Im gewählten Zeitraum gibt es keine Einträge.</p>')
-    return ('<html><body style="font-family:Segoe UI,Arial;font-size:9pt;color:#222222">'
+        out.append('<p style="color:#555555;font-size:{n}pt">Im gewählten Zeitraum gibt es keine Einträge.</p>')
+    return (f'<html><body style="font-family:Segoe UI,Arial;font-size:{n}pt;color:#222222">'
             + "\n".join(out) + "</body></html>")
 
 
 def export_pdf(path: str | Path, rows: list[dict], daily_target: timedelta, first: date, last: date,
                project_name: str = "", mode: str = SUMMARY, columns: list[str] | None = None,
-               show_pauses: bool = False, header: dict[str, str] | None = None) -> None:
-    """Schreibt den Bericht als A4-PDF. Braucht eine QGuiApplication (die Oberfläche läuft ohnehin)."""
-    from PySide6.QtCore import QMarginsF
+               show_pauses: bool = False, header: dict[str, str] | None = None,
+               layout: dict | None = None) -> None:
+    """Schreibt den Bericht als A4-PDF (Standard: quer, schmale Ränder). `layout`: heading/text (pt), landscape. Braucht eine QGuiApplication (die Oberfläche läuft ohnehin)."""
+    from PySide6.QtCore import QMarginsF, QSizeF
     from PySide6.QtGui import QPageLayout, QPageSize, QPdfWriter, QTextDocument
     writer = QPdfWriter(str(path))
+    lay = {**DEFAULT_LAYOUT, **(layout or {})}
     writer.setPageSize(QPageSize(QPageSize.A4))
-    writer.setPageMargins(QMarginsF(15, 15, 15, 15), QPageLayout.Millimeter)
+    writer.setPageOrientation(QPageLayout.Landscape if lay["landscape"] else QPageLayout.Portrait)
+    writer.setPageMargins(QMarginsF(10, 10, 10, 10), QPageLayout.Millimeter)
     writer.setResolution(120)
     writer.setTitle((header or {}).get("title") or "Zeitbericht")
     doc = QTextDocument()
-    doc.setHtml(build_html(rows, daily_target, first, last, project_name, mode, columns, show_pauses, header))
+    doc.setDocumentMargin(0)   # die Seitenränder stellt der Writer ein
+    doc.setPageSize(QSizeF(writer.width(), writer.height()))   # sonst addiert Qt einen eigenen, großen Rand
+    doc.setHtml(build_html(rows, daily_target, first, last, project_name, mode, columns, show_pauses, header, lay))
     doc.print_(writer)

@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS devops_sync (item_id INTEGER PRIMARY KEY, hours REAL NOT NULL);
 -- schon aus Outlook importierte Termine (gegen Doppelimport)
 CREATE TABLE IF NOT EXISTS outlook_imported (key TEXT PRIMARY KEY);
+-- schon in einen Excel-Stundenzettel eingetragene Stunden je Datei, Tag und Projekt (gegen doppeltes Eintragen)
+CREATE TABLE IF NOT EXISTS excel_exported (file TEXT NOT NULL, day TEXT NOT NULL, key TEXT NOT NULL,
+                                           hours REAL NOT NULL, PRIMARY KEY (file, day, key));
 CREATE TABLE IF NOT EXISTS day_flags (day TEXT PRIMARY KEY, pause_disabled INTEGER NOT NULL DEFAULT 0);
 """
 
@@ -58,7 +61,7 @@ DEFAULT_SETTINGS = {"pause_start": "12:00", "pause_minutes": "30", "daily_target
                     "devops_only_mine": "1", "devops_pat": "", "devops_col_widths": "",
                     "hotkey": "Ctrl+Alt+W", "excel_path": "", "excel_save": "1", "excel_profile": "", "duration_anchor": "start", "tray_mode": "1", "start_in_tray": "1",
                     "devops_features_cache": "", "devops_titles": "", "export_columns": "", "call_monitor": "1", "split_widths": "", "db_warn_mb": "50", "master_size": "", "main_geometry": "", "devops_enabled": "1", "manual_geometry": "", "demo_data": "", "demo_offered": "",
-                    "call_project_id": "", "call_activity_id": "", "lunch_mode": "deduct", "excel_include_pause": "0", "pdf_header": ""}
+                    "call_project_id": "", "call_activity_id": "", "lunch_mode": "deduct", "excel_include_pause": "0", "pdf_header": "", "pdf_layout": "", "excel_conflict": "ask"}
 _FMT = "%Y-%m-%dT%H:%M:%S"
 
 
@@ -180,6 +183,22 @@ class Database:
         return self.conn.execute(f"SELECT * FROM activities {where} ORDER BY sort_order, name").fetchall()
 
     # --- Einstellungen / Tagesflags ----------------------------------------
+    def excel_exported(self, file: str, first: str, last: str) -> dict[tuple[str, str], float]:
+        """(Tag, Schlüssel) -> Stunden, die schon in diese Datei eingetragen wurden (Tage als ISO-Text)."""
+        rows = self.conn.execute("SELECT day, key, hours FROM excel_exported WHERE file = ? AND day BETWEEN ? AND ?",
+                                 (file.casefold(), first, last)).fetchall()
+        return {(r[0], r[1]): r[2] for r in rows}
+
+    def mark_excel_exported(self, file: str, rows: list[tuple[str, str, float]]) -> None:
+        with self.conn:
+            self.conn.executemany("INSERT OR REPLACE INTO excel_exported (file, day, key, hours) VALUES (?, ?, ?, ?)",
+                                  [(file.casefold(), d, k, h) for d, k, h in rows])
+
+    def clear_excel_exported(self, file: str, first: str, last: str) -> int:
+        with self.conn:
+            return self.conn.execute("DELETE FROM excel_exported WHERE file = ? AND day BETWEEN ? AND ?",
+                                     (file.casefold(), first, last)).rowcount
+
     def get_setting(self, key: str) -> str:
         return self.conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()[0]
 
