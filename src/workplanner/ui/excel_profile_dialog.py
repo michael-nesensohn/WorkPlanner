@@ -41,8 +41,10 @@ LABEL_FIELDS = [
                                                     "Zeile darunter entstehen neue Projektzeilen."),
     ("section_next", "Hier dürfen keine neuen Projekte mehr angelegt werden",
      "Beschriftung des nächsten Abschnitts. Darüber ist Schluss für neue Zeilen. Leer = bis zur Summenzeile."),
-    ("section_total", "Summenzeile (Ende der Suche)", "Beschriftung der Zeile unter allen Projekten. Bis hierhin "
-                                                      "werden vorhandene Projekte gesucht. Leer = bis Blattende."),
+    ("section_total", "Summenzeile (optional, Ende der Suche)",
+     "Beschriftung der Zeile unter allen Projekten; sie wird nie beschrieben. Nur nötig, wenn oben keine Grenze "
+     "angegeben ist: Ist „Hier dürfen keine neuen Projekte mehr …“ gesetzt, kann die Summenzeile leer bleiben "
+     "(oder fehlen)."),
     ("weekday_label", "Erster Wochentag", "Beschriftung „Mo“ über dem ersten Tag jedes Wochenblocks"),
 ]
 SECTION_KEYS = ("section_start", "section_next", "section_total")   # wahlweise nach Text oder feste Zeile

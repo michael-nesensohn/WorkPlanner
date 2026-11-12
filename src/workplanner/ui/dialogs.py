@@ -263,9 +263,13 @@ class EntryDialog(QDialog):
         is_pause = bool(entry and entry.kind == PAUSE)
 
         self.project = QComboBox()
-        self.project.addItem("–", None)
-        for p in service.projects():
+        # Immer ein Projekt (kein „–“): ohne Angabe gilt „Allgemein“. Alphabetisch sortiert.
+        default_pid = service.default_project_id()   # zuerst: legt „Allgemein“ bei Bedarf an, damit es in der Liste steht
+        projects = sorted(service.projects(), key=lambda p: p["name"].casefold())
+        for p in projects:
             self.project.addItem(p["name"], p["id"])
+        if entry and entry.project_id is not None and self.project.findData(entry.project_id) < 0:
+            self.project.insertItem(0, service.project_name(entry.project_id), entry.project_id)   # z. B. archiviert
         self.activity = QComboBox()
         self.note = NoteEdit(entry.note if entry else "", "Was wurde gemacht? (mehrere Zeilen möglich)")
         self.devops_id = self._build_devops_combo(entry.devops_id if entry else None)
@@ -308,12 +312,14 @@ class EntryDialog(QDialog):
                 self.anchor_end.setChecked(True)
                 self.anchor_start.setEnabled(False)
                 self.anchor_end.setEnabled(False)
-            self.project.setCurrentIndex(max(0, self.project.findData(entry.project_id)))
+            pid = entry.project_id if entry.project_id is not None else default_pid
+            self.project.setCurrentIndex(max(0, self.project.findData(pid)))
         else:
             s = default_start or service.now()
             self.start.setTime(_qtime(s))
             self.end.setTime(_qtime(s + timedelta(minutes=30)))
             self.running.setVisible(False)
+            self.project.setCurrentIndex(max(0, self.project.findData(default_pid)))
         self._fill_activities(entry.activity_id if entry else None)
         self._show_duration()
 

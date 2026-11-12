@@ -241,6 +241,8 @@ def detect_layout(grid: list[list], sheet_month: int, year: int, profile: ExcelP
     row_billable = profile.section_start_row or find(profile.section_start)
     row_total = profile.section_total_row or (find(profile.section_total) if profile.section_total.strip() else end)
     row_not = profile.section_next_row or (find(profile.section_next) if profile.section_next.strip() else row_total)
+    if row_total is None and row_not is not None:   # Summenzeile nicht gefunden, aber das Ende der Projekte ist bekannt:
+        row_total = end                              # die Summenzeile wird nicht gebraucht (sie war nur eine weitere Grenze)
     if row_billable is None or row_not is None or row_total is None:
         given = [x for x, fixed in ((profile.section_start, profile.section_start_row),
                                     (profile.section_next, profile.section_next_row),

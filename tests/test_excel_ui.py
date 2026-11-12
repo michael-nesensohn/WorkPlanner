@@ -300,6 +300,12 @@ def test_assistant_reports_unrecognised_template_and_invalid_input(qapp, tmp_pat
     del sheet.v[49, 1]
     svc, dlg = _profile_dialog(qapp, tmp_path, sheet)
     dlg._test()
+    assert "Vorlage erkannt" in dlg.result.text()          # die Summenzeile wird nicht gebraucht, wenn das Ende bekannt ist
+    sheet = FakeSheet("November")                           # weder Ende der Projekte noch Summenzeile: nicht erkannt
+    for key in [k for k, v in sheet.v.items() if str(v).startswith(("Projekte nicht verrechenbar", "Tagestotal"))]:
+        del sheet.v[key]
+    svc, dlg = _profile_dialog(qapp, tmp_path, sheet)
+    dlg._test()
     assert "Nicht erkannt" in dlg.result.text() and "Tagestotal" in dlg.result.text()
     dlg.pattern.setText("Blatt")
     dlg._save()

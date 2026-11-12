@@ -1016,3 +1016,16 @@ def test_double_click_on_quick_select_title_opens_the_master_data(qapp):
     w.show_master = lambda section=0: opened.append(section)
     w.quick_title.doubleClicked.emit()
     assert opened == [0] and "Doppelklick" in w.quick_title.toolTip()
+
+
+def test_entry_dialog_project_list_is_sorted_and_defaults_to_general(qapp):
+    from workplanner.ui.dialogs import EntryDialog
+    db = Database()
+    seed(db)
+    db.add_project("Zebra")
+    db.add_project("Anton")
+    svc = TimeService(db, Clock(9, 0))
+    dlg = EntryDialog(svc, svc.now().date(), None, default_start=svc.now())
+    names = [dlg.project.itemText(i) for i in range(dlg.project.count())]
+    assert "–" not in names and names == sorted(names, key=str.casefold)
+    assert dlg.project.currentData() == svc.default_project_id() and dlg.project.currentText() == "Allgemein"

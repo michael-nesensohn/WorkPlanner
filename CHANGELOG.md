@@ -3,6 +3,12 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.14
+- Eintrag bearbeiten/hinzufügen: die Projektliste ist alphabetisch sortiert und hat kein „–“ mehr; ohne Angabe gilt
+  „Allgemein“.
+- Excel-Vorlage zuordnen: die Summenzeile ist optional. Ist „Hier dürfen keine neuen Projekte mehr …“ angegeben, braucht
+  die Vorlage keine Summenzeile (sie wird ohnehin nie beschrieben).
+
 ## 0.1.13
 - Neuer Knopf „⏸ Pause“ bei der laufenden Aufgabe: die Aufgabe wird angehalten, die Pause erscheint als Eintrag unter
   „Heute“. In der Pause heißt der Knopf neben der Uhr „▶ Weiter: <Aufgabe>“ (statt „Neu“); er beendet die Pause und
