@@ -13,6 +13,7 @@ Regeln (siehe `plan_month`):
 """
 from __future__ import annotations
 
+import calendar
 import json
 import os
 import re
@@ -665,6 +666,59 @@ def month_of_sheet(profile: ExcelProfile, sheet: str, year: int) -> int | None:
     """Zu welchem Monat gehört der Blattname laut Blattnamen-Muster?"""
     return next((m for m in range(1, 13)
                  if profile.sheet_name_for(m, year).strip().casefold() == sheet.strip().casefold()), None)
+
+
+class GridSheet:
+    """Nur lesbares Blatt aus einem eingelesenen Raster (für die Prüfung der Zuordnung, ohne Excel zu öffnen)."""
+
+    def __init__(self, name: str, grid: list[list]):
+        self.name, self._grid = name, grid
+
+    def grid(self, rows: int, cols: int) -> list[list]:
+        return self._grid
+
+    def formula(self, row: int, col: int) -> str:
+        return ""
+
+    def set_value(self, row: int, col: int, value) -> None:   # wird bei der Prüfung nie geschrieben
+        pass
+
+
+@dataclass
+class SheetCheck:
+    sheet: str
+    ok: bool
+    text: str                                        # Erkennung oder Fehler
+    warnings: list[str] = field(default_factory=list)
+
+
+def check_template(grids: dict[str, list[list]], profile: ExcelProfile, year: int,
+                   projects: list[tuple[str, str]]) -> list[SheetCheck]:
+    """Prüft jedes Monatsblatt: Wird die Vorlage erkannt, hat jeder Tag des Monats eine Spalte und ist für alle
+    `projects` (Nummer, Name) Platz oder schon eine Zeile da? Es wird nichts geschrieben."""
+    out: list[SheetCheck] = []
+    for name, grid in grids.items():
+        month = month_of_sheet(profile, name, year)
+        if month is None:
+            continue
+        try:
+            layout = detect_layout(grid, month, year, profile)
+        except ExcelError as ex:
+            out.append(SheetCheck(name, False, str(ex)))
+            continue
+        days = [date(year, month, d) for d in range(1, calendar.monthrange(year, month)[1] + 1)]
+        items = [DayHours(d, nr, pname, 1.0) for d in days if d.weekday() < layout.days for nr, pname in projects]
+        if not projects:
+            items = [DayHours(d, "", "(Prüfung)", 1.0) for d in days if d.weekday() < layout.days]
+        try:
+            plan = plan_month(GridSheet(name, grid), month, year, items, profile, defer_unplaced=True)   # Randtage: Nachbarblatt
+        except ExcelError as ex:
+            out.append(SheetCheck(name, False, str(ex)))
+            continue
+        # nur eine Warnung je Art (sonst steht dieselbe Meldung für jeden Tag)
+        warnings = list(dict.fromkeys(w for w in plan.warnings if "Formel" not in w))
+        out.append(SheetCheck(name, not warnings, describe_layout(layout), warnings))
+    return out
 
 
 def describe_layout(layout: Layout) -> str:

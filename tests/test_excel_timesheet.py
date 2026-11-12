@@ -509,3 +509,29 @@ def test_aggregate_takes_pauses_only_when_asked():
     assert len(aggregate(rows)) == 1
     with_pause = aggregate(rows, include_pause=True)
     assert len(with_pause) == 2 and any(d.name == "Pause" and d.hours == 0.5 for d in with_pause)
+
+
+# --- Prüfung der Zuordnung über alle Blätter ----------------------------------------------
+
+def _grid(sheet):
+    return sheet.grid(80, 40)
+
+
+def test_check_template_ok_for_a_good_sheet():
+    from workplanner.excel_timesheet import check_template
+    res = check_template({"November": _grid(FakeSheet("November")), "Notizen": [[None]]}, DEFAULT_PROFILE, 2026,
+                         [("E1", "Neu")])
+    assert [r.sheet for r in res] == ["November"] and res[0].ok and not res[0].warnings
+
+
+def test_check_template_reports_unrecognised_sheet_and_missing_room():
+    from workplanner.excel_timesheet import check_template
+    broken = FakeSheet("Dezember")
+    broken.v[7, 1] = ""                                     # Abschnitt „Projekt verrechenbar …“ fehlt
+    full = FakeSheet("November")
+    for r in range(8, 29):
+        full.v[r, 1] = full.v.get((r, 1)) or f"Projekt {r}"           # alle Projektzeilen belegt: kein freier Platz
+    res = {r.sheet: r for r in check_template({"Dezember": _grid(broken), "November": _grid(full)},
+                                              DEFAULT_PROFILE, 2026, [("E1", "Neu")])}
+    assert not res["Dezember"].ok and "nicht" in res["Dezember"].text
+    assert not res["November"].ok and any("Kein freier Platz" in w for w in res["November"].warnings)

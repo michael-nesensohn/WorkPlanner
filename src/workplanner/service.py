@@ -56,6 +56,21 @@ class TimeService:
     def set_lunch_mode(self, mode: str) -> None:
         self.db.set_setting("lunch_mode", "ask" if mode == "ask" else "deduct")
 
+    PDF_HEADER_KEYS = ("title", "name", "company", "extra")
+
+    @property
+    def pdf_header(self) -> dict[str, str]:
+        """Kopfdaten des PDF-Berichts (Titel, Name, Firma/Abteilung, freie Zeile); leer = nicht angezeigt."""
+        try:
+            data = json.loads(self.db.get_setting("pdf_header") or "{}")
+        except ValueError:
+            data = {}
+        return {k: str(data.get(k, "")).strip() for k in self.PDF_HEADER_KEYS}
+
+    def set_pdf_header(self, header: dict[str, str]) -> None:
+        self.db.set_setting("pdf_header", json.dumps({k: str(header.get(k, "")).strip()
+                                                      for k in self.PDF_HEADER_KEYS}, ensure_ascii=False))
+
     @property
     def excel_include_pause(self) -> bool:
         """Pausen-Einträge als Zeile „Pause“ in den Excel-Stundenzettel übernehmen (Standard: nein)."""

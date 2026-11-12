@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDateEdit, QD
 
 from .. import autostart
 from ..export import ALL_COLUMNS, COLUMNS, export_excel
+from ..export_pdf import DETAIL, SUMMARY, export_pdf
 from ..service import TimeService
 from .dialogs import fmt_duration
 
@@ -199,6 +200,20 @@ class MasterDataPage(QWidget):
         xl.addRow("", self.excel_pause)
         xl.addRow("", self.excel_status)
         lay.addWidget(xbox)
+        pbox = QGroupBox("PDF-Bericht: Kopfdaten")
+        pf = QFormLayout(pbox)
+        self.pdf_fields: dict[str, QLineEdit] = {}
+        for key, label, hint in (("title", "Titel", "Zeitbericht"), ("name", "Name", "z. B. Vor- und Nachname"),
+                                 ("company", "Firma / Abteilung", ""), ("extra", "Zusatzzeile", "z. B. Personalnummer")):
+            edit = QLineEdit()
+            edit.setPlaceholderText(hint)
+            edit.editingFinished.connect(self._save_pdf_header)
+            self.pdf_fields[key] = edit
+            pf.addRow(label, edit)
+        note = QLabel("Steht oben auf jedem PDF-Bericht (Berichte → „Als PDF exportieren …“). Leere Felder entfallen.")
+        note.setStyleSheet("color:#667")
+        pf.addRow("", note)
+        lay.addWidget(pbox)
         lay.addStretch(1)
         self.reload()
         for w in (self.pause_start,):
@@ -256,6 +271,8 @@ class MasterDataPage(QWidget):
         self.excel_save.setChecked(self.svc.excel_save)
         self.excel_pause.setChecked(self.svc.excel_include_pause)
         self.excel_profile_label.setText(self.svc.excel_profile.name)
+        for key, value in self.svc.pdf_header.items():
+            self.pdf_fields[key].setText(value)
         self.db_warn.blockSignals(True)
         self.db_warn.setValue(self.svc.db_warn_mb)
         self.db_size.setText(f"aktuell {self.svc.db.size_bytes() / 1024 / 1024:.1f} MB")
@@ -273,6 +290,9 @@ class MasterDataPage(QWidget):
         self.target.setTime(QTime(tm // 60, tm % 60))
         for w in (self.pause_start, self.pause_min, self.target, self.default_project, self.lunch_mode):
             w.blockSignals(False)
+
+    def _save_pdf_header(self) -> None:
+        self.svc.set_pdf_header({k: e.text() for k, e in self.pdf_fields.items()})
 
     def _save_excel(self) -> None:
         self.svc.set_excel(self.excel_path.text(), self.excel_save.isChecked())
@@ -682,6 +702,15 @@ class ReportPage(QWidget):
         export = QPushButton("Nach Excel exportieren …")
         export.setStyleSheet("padding:8px 16px;font-weight:600")
         export.clicked.connect(self._export)
+        self.pdf_mode = QComboBox()
+        self.pdf_mode.addItem("PDF: zusammengefasst (je Projekt)", SUMMARY)
+        self.pdf_mode.addItem("PDF: einzeln (alle Einträge)", DETAIL)
+        self.pdf_mode.setToolTip("Zusammengefasst: je Tag steht jedes Projekt einmal mit der Gesamtdauer, darunter die "
+                                 "Tätigkeiten mit ihren Notizen. Einzeln: jeder Eintrag eine Zeile. "
+                                 "Es erscheinen nur die oben angehakten Spalten.")
+        pdf = QPushButton("Als PDF exportieren …")
+        pdf.setStyleSheet("padding:8px 16px;font-weight:600")
+        pdf.clicked.connect(self._export_pdf)
         self.to_excel = QPushButton("In Excel-Stundenzettel eintragen …")
         self.to_excel.setStyleSheet("padding:8px 16px;font-weight:600")
         self.to_excel.clicked.connect(self._to_excel)
@@ -709,6 +738,11 @@ class ReportPage(QWidget):
         lay.addWidget(self.summary)
         lay.addWidget(box)
         lay.addWidget(export)
+        pdf_row = QHBoxLayout()
+        pdf_row.addWidget(pdf)
+        pdf_row.addWidget(self.pdf_mode)
+        pdf_row.addStretch(1)
+        lay.addLayout(pdf_row)
         lay.addWidget(self.to_excel)
         self.preview = QTableWidget(0, 0)
         self.preview.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -786,6 +820,22 @@ class ReportPage(QWidget):
     def _save_columns(self) -> None:
         self.svc.set_export_columns(self._columns())
         self._fill_preview(self._rows())
+
+    def _export_pdf(self) -> None:
+        a, b = self._range()
+        path, _ = QFileDialog.getSaveFileName(self, "PDF-Bericht", f"Zeitbericht_{a:%Y%m%d}_{b:%Y%m%d}.pdf",
+                                              "PDF (*.pdf)")
+        if not path:
+            return
+        try:
+            export_pdf(path, self._rows(with_pauses=True), self.svc.daily_target, a, b,
+                       self.project.currentText() if self.project.currentData() is not None else "",
+                       mode=self.pdf_mode.currentData(), columns=self._columns(),
+                       show_pauses=self.show_pauses.isChecked(), header=self.svc.pdf_header)
+        except OSError as ex:
+            QMessageBox.warning(self, "PDF", f"Datei konnte nicht geschrieben werden:\n{ex}")
+            return
+        QMessageBox.information(self, "PDF", f"Gespeichert:\n{path}")
 
     def _export(self) -> None:
         if not self._columns():

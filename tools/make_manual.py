@@ -245,7 +245,7 @@ def story(s: Screens) -> list:
         ["5", "Outlook", "Termine des angezeigten Tages; ein Klick bucht den Termin"],
         ["6", "DevOps", "Features und Stories als Kacheln; ein Klick startet die Zeit mit Verknüpfung"],
         ["7", "Schnellauswahl", "Ihre Favoriten-Projekte; Klick oder Strg+Zahl startet die Zeit"],
-        ["8", "Knöpfe", "Bearbeiten, Eintrag hinzufügen, Löschen, Outlook-Import, Notiz → DevOps-Task, Mittagspause"],
+        ["8", "Knöpfe", "Bearbeiten, Eintrag hinzufügen, Löschen, Outlook-Import, Notiz → DevOps-Task"],
     ], [1.1 * cm, 3.6 * cm, FRAME_W - 4.7 * cm]))
     add(Spacer(1, 6))
     add(box("Die Breite von Outlook-, DevOps- und Schnellauswahl-Spalte lässt sich an den dünnen Trennern mit der Maus "
@@ -262,6 +262,8 @@ def story(s: Screens) -> list:
         "Zuordnung, bekommt <i>diese</i> das Projekt, es entsteht kein neuer Eintrag.",
         "<b>Strg + 1 … 9</b> wählt die Favoriten der Reihe nach, genau wie ein Klick. Die Zahl steht rechts an der Kachel.",
         "<b>Neu</b> beendet die laufende Aufgabe und startet sofort eine neue (Standardprojekt).",
+        "<b>⏸ Pause</b> stoppt die Aufgabe und legt einen sichtbaren Pausen-Eintrag an. Während der Pause heißt der "
+        "Knopf <b>Weiter: &lt;Aufgabe&gt;</b>: Er beendet die Pause, und die Aufgabe davor läuft weiter.",
         "<b>Stopp</b> beendet die laufende Aufgabe.",
         "<b>Tätigkeit</b> wählen Sie über die Knöpfe in der Start-Karte (blau = gewählt).",
     ]))
@@ -273,8 +275,9 @@ def story(s: Screens) -> list:
           "Startzeit oder die bisher angefallene Zeit. Der davorliegende Eintrag passt sich an; die Vorschau zeigt wie."))
     add(s.pic("zeit_aendern", "Laufende Zeit anpassen", width=9 * cm))
     add(box("Es läuft immer nur <b>eine</b> Aufgabe. Zeiten können nicht in der Zukunft liegen, und ein Eintrag darf "
-            "den Tag nicht verlassen. Die Mittagspause wird <b>nicht</b> als eigener Eintrag gebucht, sondern am "
-            "Tagesende von der Arbeitszeit abgezogen (Abschnitt 5).", "Regeln der Zeitleiste"))
+            "den Tag nicht verlassen. Es geht <b>nie ein Eintrag verloren</b>: Reicht ein früherer Start in andere "
+            "Einträge hinein, fragt WorkPlanner, ob diese ihre Dauer <b>behalten</b> (sie rücken nach hinten) oder "
+            "<b>gekürzt</b> werden. Die Mittagspause wird von der Arbeitszeit abgezogen (Abschnitt 5).", "Regeln der Zeitleiste"))
 
     # --- 5 Einträge -------------------------------------------------------------------------------------------
     add(CondPageBreak(9 * cm))
@@ -293,7 +296,10 @@ def story(s: Screens) -> list:
     add(bullets([
         "<b>Bearbeiten</b> (oder Doppelklick auf die Zeile): bei genau einem markierten Eintrag.",
         "<b>Eintrag hinzufügen</b>: für vergessene Zeiten. Start, Ende und Dauer hängen zusammen; mit „Dauer ab hier“ "
-        "bzw. „Dauer bis hier“ legen Sie fest, welcher Zeitpunkt bei einer neuen Dauer stehen bleibt.",
+        "bzw. „Dauer bis hier“ legen Sie fest, welcher Zeitpunkt bei einer neuen Dauer stehen bleibt. "
+        "<b>Start = Ende des Vorgängers</b> setzt den Start auf das Ende des Eintrags davor. Die Projektliste ist "
+        "alphabetisch; ohne Auswahl gilt „Allgemein“.",
+        "Liegt ein Eintrag in der Mitte einer längeren Aufgabe, wird diese <b>aufgetrennt</b> und läuft danach weiter.",
         "<b>Löschen</b> (oder Entf): alle markierten Einträge; die späteren rücken nach vorn.",
     ]))
     add(s.pic("eintrag_dialog", "Eintrag hinzufügen – die Vorschau zeigt, was sich verschiebt", width=9.5 * cm))
@@ -307,10 +313,17 @@ def story(s: Screens) -> list:
         "Die Vorschau im Dialog zeigt jede Änderung vor dem Speichern. Das Speichern ist nur möglich, wenn alles "
         "zusammenpasst; sonst steht der Grund in Rot.",
     ]))
-    add(P("Mittagspause", H2))
+    add(P("Pausen und Mittagspause", H2))
     add(P("Die Mittagspause (voreingestellt 12:00, 30 Minuten) wird nicht gebucht, sondern aus der Dauer der Einträge "
-          "herausgerechnet, die in dieses Zeitfenster fallen. Ein Hinweis im Tooltip der Dauer zeigt den Abzug. Für einen "
-          "einzelnen Tag lässt sich der Abzug mit <b>Mittagspause für diesen Tag nicht abziehen</b> abschalten."))
+          "herausgerechnet, die in dieses Zeitfenster fallen. Ein Hinweis im Tooltip der Dauer zeigt den Abzug. Unter der "
+          "Notiz steht, ob der Abzug aktiv ist; für einen einzelnen Tag lässt er sich mit <b>Heute nicht abziehen</b> "
+          "abschalten (und mit <b>Wieder abziehen</b> zurückholen)."))
+    add(bullets([
+        "Mit <b>⏸ Pause</b> legen Sie eine echte Pause als Eintrag an. Sie ersetzt dann den Abzug der Mittagspause; die "
+        "Summen heißen „Arbeitszeit (ohne Pausen)“.",
+        "In den Einstellungen wählen Sie, ob zur Mittagszeit <b>automatisch abgezogen</b> wird oder WorkPlanner "
+        "<b>nachfragt</b> („Pause starten?“: jetzt, später, abziehen oder nicht).",
+    ]))
 
     # --- 6 Outlook --------------------------------------------------------------------------------------------
     add(CondPageBreak(14 * cm))
@@ -401,7 +414,9 @@ def story(s: Screens) -> list:
     # --- 9 Woche ------------------------------------------------------------------------------------------------
     add(CondPageBreak(9 * cm))
     add(P("9&nbsp;&nbsp;Woche", H1))
-    add(P("Der Reiter <b>Woche</b> zeigt Montag bis Sonntag. Mit den Pfeil-Knöpfen oben blättern Sie durch die Wochen."))
+    add(P("Der Reiter <b>Woche</b> zeigt Montag bis Sonntag. Mit den Pfeil-Knöpfen neben dem Datum blättern Sie durch "
+          "die Wochen. Das Kästchen <b>Pausen anzeigen</b> (standardmäßig aus) blendet die Pausen-Einträge und die "
+          "Spalte „Pausen“ mit den Summen ein."))
     add(P("Übersicht", H2))
     add(P("Pro Tag: gearbeitet, davon verrechenbar, Soll und Differenz (+ oder –); darunter die Stunden je Projekt."))
     add(s.pic("woche_uebersicht", "Wochenübersicht", crop_h=330, max_h=8 * cm))
@@ -420,11 +435,24 @@ def story(s: Screens) -> list:
     add(steps([
         "Wählen Sie <b>Von</b>, <b>Bis</b> und optional ein <b>Projekt</b>. Die Zeile darunter zeigt die Summe.",
         "Haken Sie bei <b>Spalten im Export</b> an, was exportiert werden soll. Standard sind Datum, Dauer, "
-        "Verrechenbar, Projektnr., Projekt, Tätigkeit, Notiz und DevOps; zusätzlich gibt es Start, Ende und Mittagspause. "
-        "Ihre Auswahl wird gespeichert.",
+        "Verrechenbar, Projektnr., Projekt, Tätigkeit, Notiz und DevOps. Ihre Auswahl wird gespeichert und gilt für "
+        "Excel <b>und</b> PDF.",
+        "<b>Pausen-Einträge anzeigen und exportieren</b> (standardmäßig aus) nimmt die Pausen in Vorschau und Export auf.",
         "Die <b>Vorschau</b> darunter zeigt genau diese Spalten.",
         "<b>Nach Excel exportieren …</b> speichert eine .xlsx-Datei.",
+        "<b>Als PDF exportieren …</b> speichert einen Bericht (siehe unten).",
     ]))
+    add(P("PDF-Bericht", H2))
+    add(P("Neben dem Knopf wählen Sie die Art. Es erscheinen nur die oben angehakten Spalten; vorn steht eine "
+          "<b>Summe je Projekt</b> (A–Z), dann folgt jeder Tag. Titel, Name, Firma/Abteilung und eine Zusatzzeile oben auf "
+          "dem Bericht legen Sie unter <b>Einstellungen → Einstellungen → PDF-Bericht: Kopfdaten</b> fest."))
+    add(table([
+        ["Art", "Inhalt"],
+        ["zusammengefasst", "je Tag steht jedes Projekt <b>einmal</b> mit der Gesamtdauer; darunter je Tätigkeit die "
+                            "verbundenen Notizen und ihre Dauer"],
+        ["einzeln", "je Tag alle Einträge als Zeilen mit den gewählten Spalten (Uhrzeit nur, wenn Start oder Ende "
+                    "angehakt ist)"],
+    ], [3.4 * cm, FRAME_W - 3.4 * cm]))
     add(P("Die Excel-Datei enthält drei Blätter", H2))
     add(table([
         ["Blatt", "Inhalt"],
@@ -434,7 +462,15 @@ def story(s: Screens) -> list:
     ], [3.4 * cm, FRAME_W - 3.4 * cm]))
     add(P("In den Excel-Stundenzettel eintragen", H2))
     add(P("Mit <b>In Excel-Stundenzettel eintragen …</b> übernimmt WorkPlanner die Stunden je Projekt und Tag in Ihre "
-          "vorhandene Stundenzettel-Datei (ein Blatt je Monat; die Stunden stehen ohne Mittagspause in der Tagesspalte)."))
+          "vorhandene Stundenzettel-Datei (ein Blatt je Monat; die Stunden stehen ohne Mittagspause in der Tagesspalte). "
+          "Ob Pausen-Einträge mitgehen, stellen Sie in den Stammdaten ein („Pausen mit in den Stundenzettel eintragen“)."))
+    add(P("Eigene Vorlage zuordnen", H2))
+    add(P("Unter <b>Einstellungen → Excel-Vorlage zuordnen …</b> beschreiben Sie den Aufbau Ihrer Datei: Laden Sie eine "
+          "Beispieldatei, klicken Sie bei jedem Feld auf ◎ und dann in der Tabelle die passende Beschriftung. "
+          "<b>Testen</b> färbt die erkannte Struktur ein. Die <b>Summenzeile</b> ist optional: Wenn Sie schon angeben, "
+          "bis wohin die Projekte gehen, brauchen Sie sie nicht. <b>Alles prüfen</b> (unten links) testet alle "
+          "Monatsblätter der Datei mit Ihren Projekten: Wird die Vorlage erkannt, und ist für jedes Projekt Platz? "
+          "Das Profil lässt sich als .wpprofile.json exportieren und importieren."))
     add(steps([
         "Stellen Sie die Datei unter <b>Einstellungen → Einstellungen → Excel-Stundenzettel</b> ein und prüfen Sie "
         "sie mit „Prüfen“.",
@@ -469,6 +505,8 @@ def story(s: Screens) -> list:
         ["Teams-Anrufe", "Nachfrage nach Anrufen ein/aus"],
         ["Hinweis bei Datenbank größer als", "Grenze in MB für die Warnung beim Start (0 = nie); zeigt die aktuelle Größe"],
         ["Mittagspause ab / Pausendauer", "Zeitfenster, das von der Arbeitszeit abgezogen wird (0 min = keine Pause)"],
+        ["Mittagspause", "automatisch abziehen oder zur Mittagszeit nachfragen („Pause starten?“)"],
+        ["Pausen in Excel", "Pausen-Einträge als Zeile „Pause“ in den Excel-Stundenzettel eintragen (Standard: aus)"],
         ["Soll-Arbeitszeit pro Tag", "Grundlage für Soll, Soll-Ende und alle Differenzen (Montag bis Freitag)"],
         ["Excel-Stundenzettel", "Datei für den Eintrag der Stunden; „Datei nach dem Eintragen speichern“"],
     ], [5.2 * cm, FRAME_W - 5.2 * cm]))

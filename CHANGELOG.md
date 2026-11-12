@@ -3,6 +3,15 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.16
+- Berichte: neuer Knopf „Als PDF exportieren …“. Zusammengefasst steht je Tag jedes Projekt einmal mit der Gesamtdauer,
+  darunter je Tätigkeit die verbundenen Notizen; alternativ „einzeln“ mit allen Einträgen. Es erscheinen nur die
+  angehakten Spalten, vorn steht eine Summe je Projekt (A–Z).
+- Einstellungen: „PDF-Bericht: Kopfdaten“ (Titel, Name, Firma/Abteilung, Zusatzzeile) stehen oben auf dem PDF.
+- Excel-Vorlage zuordnen: neuer Knopf „Alles prüfen“ testet alle Monatsblätter der Datei mit deinen Projekten (Vorlage
+  erkannt? Tage mit Spalte? Platz für jedes Projekt?).
+- Handbuch und Bildschirmfotos auf den aktuellen Stand gebracht (Pause, Berichte, Excel-Assistent).
+
 ## 0.1.15
 - Eintrag bearbeiten: Start und Ende gleichzeitig früher setzen löst nicht mehr die Meldung „Zeiten dürfen nicht in der
   Zukunft liegen“ aus, wenn das Ergebnis gültig ist.

@@ -58,7 +58,7 @@ DEFAULT_SETTINGS = {"pause_start": "12:00", "pause_minutes": "30", "daily_target
                     "devops_only_mine": "1", "devops_pat": "", "devops_col_widths": "",
                     "hotkey": "Ctrl+Alt+W", "excel_path": "", "excel_save": "1", "excel_profile": "", "duration_anchor": "start", "tray_mode": "1", "start_in_tray": "1",
                     "devops_features_cache": "", "devops_titles": "", "export_columns": "", "call_monitor": "1", "split_widths": "", "db_warn_mb": "50", "master_size": "", "main_geometry": "", "devops_enabled": "1", "manual_geometry": "", "demo_data": "", "demo_offered": "",
-                    "call_project_id": "", "call_activity_id": "", "lunch_mode": "deduct", "excel_include_pause": "0"}
+                    "call_project_id": "", "call_activity_id": "", "lunch_mode": "deduct", "excel_include_pause": "0", "pdf_header": ""}
 _FMT = "%Y-%m-%dT%H:%M:%S"
 
 

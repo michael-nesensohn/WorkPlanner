@@ -3,6 +3,7 @@ testen, als Profil speichern sowie Profile exportieren und importieren."""
 from __future__ import annotations
 
 from dataclasses import replace
+from html import escape
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor, QFont
@@ -11,7 +12,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QFileDialog, QGridLayout, QHB
                                QVBoxLayout, QWidget)
 
 from ..excel_timesheet import (DEFAULT_PROFILE, GRID_COLS, GRID_ROWS, IDENTIFY_MODES, ExcelError, ExcelProfile,
-                               ProfileError, SheetView, _text, col_letter, describe_layout, detect_layout, display_text,
+                               ProfileError, SheetView, _text, check_template, col_letter, describe_layout, detect_layout, display_text,
                                file_sheet_names, load_profile, month_of_sheet, read_sheet_view, save_profile)
 from ..service import TimeService
 
@@ -232,7 +233,12 @@ class ExcelProfileDialog(QDialog):
         self.save_btn.clicked.connect(self._save)
         cancel = QPushButton("Abbrechen")
         cancel.clicked.connect(self.reject)
+        check = self.check_btn = QPushButton("Alles prüfen")
+        check.setToolTip("Prüft alle Monatsblätter der Datei mit diesen Einstellungen: Wird die Vorlage erkannt, hat jeder "
+                         "Tag eine Spalte und ist für alle deine Projekte Platz?")
+        check.clicked.connect(self._check_all)
         bottom = QHBoxLayout()
+        bottom.addWidget(check)
         bottom.addStretch(1)
         bottom.addWidget(cancel)
         bottom.addWidget(self.save_btn)
@@ -585,6 +591,47 @@ class ExcelProfileDialog(QDialog):
         self._show_grid()
         self.result.setText("<span style='color:#1e7e34'>✓ Vorlage erkannt.</span> " + describe_layout(layout)
                             + "<br><span style='color:#667'>Blau: Nummer · Violett: Name · Grün: Tage</span>" + note)
+
+    def _check_all(self) -> None:
+        """Prüft jedes Monatsblatt der Beispieldatei samt allen Projekten und zeigt das Ergebnis."""
+        try:
+            profile = self.collect()
+        except ExcelError as ex:
+            self._error(str(ex))
+            return
+        path = self.path.text().strip()
+        if not path:
+            self._error("Bitte zuerst eine Excel-Datei wählen.")
+            return
+        year = self.svc.now().year
+        try:
+            grids = {}
+            for name in self._list_sheets(path):
+                if month_of_sheet(profile, name, year) is not None:
+                    loaded = self._load_grid(path, name)
+                    grids[name] = loaded.grid if isinstance(loaded, SheetView) else loaded
+        except Exception as ex:  # noqa: BLE001 – Datei fehlt, gesperrt …
+            self._error(f"Datei nicht lesbar: {ex}")
+            return
+        if not grids:
+            self.result.setText("<span style='color:#c0392b'>✗ Kein Blatt passt zum Blattnamen-Muster „"
+                                f"{profile.sheet_pattern}“ (für {year}).</span>")
+            return
+        projects = [(self.svc.project_number(p["id"]), p["name"]) for p in self.svc.projects()]
+        results = check_template(grids, profile, year, projects)
+        bad = [r for r in results if not r.ok]
+        lines = []
+        for r in results:
+            if r.ok:
+                lines.append(f"<span style='color:#1e7e34'>✓ {escape(r.sheet)}</span>")
+            else:
+                more = r.warnings[:4] + (["…"] if len(r.warnings) > 4 else [])
+                detail = "<br>&nbsp;&nbsp;".join(escape(x) for x in ([r.text] if not r.warnings else more))
+                lines.append(f"<span style='color:#c0392b'>✗ {escape(r.sheet)}</span><br>&nbsp;&nbsp;{detail}")
+        head = (f"<b style='color:#1e7e34'>✓ Alles in Ordnung ({len(results)} Blätter)</b>" if not bad else
+                f"<b style='color:#c0392b'>✗ {len(bad)} von {len(results)} Blättern mit Problemen</b>")
+        self.result.setText(head + "<br>" + "<br>".join(lines))
+        self.side.ensureWidgetVisible(self.result)
 
     def _save(self) -> None:
         try:

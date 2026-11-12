@@ -1,6 +1,6 @@
 # WorkPlanner
 
-Zeiterfassung mit Schnellauswahl, Tätigkeiten, lückenloser Zeitleiste, Mittagspause (wird am Tagesende abgezogen),
+Zeiterfassung mit Schnellauswahl, Tätigkeiten, lückenloser Zeitleiste, Pausen und Mittagspause,
 DevOps- und Outlook-Anbindung und Eintrag in einen Excel-Stundenzettel.
 
 ## So sieht es aus
@@ -12,7 +12,7 @@ Alle Bilder zeigen Beispieldaten (`tools/make_screenshots.py` erzeugt sie neu).
 **Woche** mit Soll und Differenz je Tag und für die Woche
 ![Woche](docs/screenshots/woche.png)
 
-**Berichte und Export** mit frei wählbaren Spalten und Vorschau
+**Berichte und Export** (Excel und PDF) mit frei wählbaren Spalten und Vorschau
 ![Berichte](docs/screenshots/berichte.png)
 
 | Outlook-Termine übernehmen | Teams-Anruf eintragen |
@@ -29,9 +29,10 @@ Ein ausführliches **Handbuch** (PDF mit Bildschirmfotos) liegt dem Installer be
 - Outlook-Termine mit einem Klick als Eintrag übernehmen (klassisches Outlook, nur lesend)
 - Teams-Anrufe erkennen und nach dem Ende als Eintrag anbieten
 - optional Azure DevOps: Features und Stories verknüpfen, Stunden nach „Completed Work“ übertragen
-- Wochenübersicht, Excel-Export mit wählbaren Spalten und Eintrag in einen Excel-Stundenzettel
+- Pause-Knopf mit sichtbaren Pausen-Einträgen; früherer Start löscht nie Einträge (Nachfrage: Dauer behalten oder kürzen)
+- Wochenübersicht, Excel- und PDF-Bericht (zusammengefasst je Projekt oder einzeln) mit wählbaren Spalten und Eintrag in einen Excel-Stundenzettel
 - Eigene Excel-Vorlage per Assistent zuordnen („Einstellungen → Vorlage zuordnen …“): Blattnamen, Projektnummer und/oder
-  Name, Grenzen der Projektzeilen, Wochentage Mo–Sa oder Mo–So; Profile lassen sich exportieren und importieren
+  Name, Grenzen der Projektzeilen, Wochentage Mo–Sa oder Mo–So; „Alles prüfen“ testet alle Monatsblätter; Profile lassen sich exportieren und importieren
 - Updates aus den GitHub-Releases, nur manuell (Hilfe → Über WorkPlanner / Updates), mit Prüfsummen-Kontrolle
 - Beim ersten Start auf Wunsch Beispieldaten zum Ausprobieren (jederzeit mit „Hilfe → Beispieldaten entfernen“ wieder weg)
 - Daten lokal in einer SQLite-Datei, DevOps-Token mit der Windows-Benutzerverschlüsselung geschützt
