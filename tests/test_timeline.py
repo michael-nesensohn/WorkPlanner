@@ -226,3 +226,31 @@ def test_changed_times_reports_shifted_entries():
     day = [e(8, 0, 9, 0, id=1), e(9, 0, 10, 0, id=2)]
     out = tl.set_end(day, 0, t(9, 30), NOW)
     assert [o.id for o, _ in tl.changed_times(day, out)] == [1, 2]
+
+
+# --- Pause als sichtbarer Eintrag -------------------------------------------------
+
+def test_start_pause_stops_the_task_and_end_pause_resumes_it():
+    day = [e(8, 0, None, id=1, note="Arbeit", devops_id=5)]
+    paused = tl.start_pause(day, t(12, 0))
+    assert times(paused) == [("08:00", "12:00"), ("12:00", None)]
+    assert paused[1].kind == PAUSE and paused[0].kind == WORK
+    out = tl.end_pause(paused, t(12, 30))
+    assert times(out) == [("08:00", "12:00"), ("12:00", "12:30"), ("12:30", None)]
+    assert [x.kind for x in out] == [WORK, PAUSE, WORK]
+    assert out[2].note == "Arbeit" and out[2].devops_id == 5 and out[2].project_id == 1
+
+
+def test_timed_pause_ends_by_itself_and_the_task_goes_on():
+    day = tl.start_pause([e(8, 0, None, note="Arbeit")], t(12, 0), minutes=30)
+    assert day[-1].auto_until == t(12, 30)
+    assert times(tl.resume_after_meeting(day, t(12, 10))) == [("08:00", "12:00"), ("12:00", None)]
+    out = tl.resume_after_meeting(day, t(12, 31))
+    assert times(out) == [("08:00", "12:00"), ("12:00", "12:30"), ("12:30", None)] and out[2].note == "Arbeit"
+
+
+def test_pause_without_a_running_task_just_pauses_and_ends():
+    paused = tl.start_pause([], t(12, 0))
+    assert times(paused) == [("12:00", None)]
+    assert times(tl.end_pause(paused, t(12, 20))) == [("12:00", "12:20")]
+    assert tl.start_pause(paused, t(12, 5)) == paused          # schon Pause: nichts ändert sich

@@ -45,7 +45,6 @@ COLUMNS: dict[str, tuple[str, int, object, str | None, str]] = {
     "activity": ("Tätigkeit", 24, lambda r: r["activity"], None, "top"),
     "note": ("Notiz", 60, lambda r: r["note"], None, "wrap"),
     "devops": ("DevOps", 10, lambda r: r["devops_id"] or "", None, "top"),
-    "lunch": ("Mittagspause (abgezogen)", 14, lambda r: r["lunch"], DURATION_FMT, "top"),
 }
 ALL_COLUMNS = list(COLUMNS)
 # Nur über die versteckte Einstellung in workplanner.ini wählbar (siehe config.py)
@@ -54,15 +53,16 @@ DEFAULT_COLUMNS = ["date", "duration", "billable", "project_number", "project", 
 
 
 def export_excel(path: str | Path, rows: list[dict], daily_target: timedelta,
-                 columns: list[str] | None = None) -> None:
-    """`rows` kommen aus `TimeService.report_rows`; `columns` sind Schlüssel aus `COLUMNS` (Standard: `DEFAULT_COLUMNS`)."""
+                 columns: list[str] | None = None, show_pauses: bool = True) -> None:
+    """`rows` kommen aus `TimeService.report_rows`; `columns` sind Schlüssel aus `COLUMNS` (Standard: `DEFAULT_COLUMNS`).
+    Ohne `show_pauses` fehlen die Pausen-Einträge im Blatt „Einträge“ (die Tagesübersicht zählt sie weiterhin)."""
     cols = [c for c in (columns or DEFAULT_COLUMNS) if c in COLUMNS] or DEFAULT_COLUMNS
     wb = Workbook()
 
     ws = wb.active
     ws.title = "Einträge"
     _header(ws, [COLUMNS[c][0] for c in cols])
-    for r in rows:
+    for r in (rows if show_pauses else [r for r in rows if r["kind"] != "pause"]):
         ws.append([COLUMNS[c][2](r) for c in cols])
         i = ws.max_row
         for n, c in enumerate(cols, 1):

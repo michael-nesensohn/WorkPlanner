@@ -80,7 +80,7 @@ class ExcelExportDialog(QDialog):
         if last < first:
             self.status.setText("<span style='color:#c0392b'>⚠ „bis“ liegt vor „Von“.</span>")
             return
-        self._items = aggregate(self.svc.report_rows(first, last))  # Datenbank nur im GUI-Thread lesen
+        self._items = aggregate(self.svc.report_rows(first, last), self.svc.excel_include_pause)  # Datenbank nur im GUI-Thread lesen
         if not self._items:
             self.table.setRowCount(0)
             self.warnings.setText("")

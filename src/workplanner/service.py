@@ -48,6 +48,22 @@ class TimeService:
     def daily_target(self) -> timedelta:
         return timedelta(minutes=int(self.db.get_setting("daily_target_minutes")))
 
+    @property
+    def lunch_mode(self) -> str:
+        """„deduct“: Mittagspause nur abziehen; „ask“: zur Pausenzeit nachfragen und die Pause als Eintrag anlegen."""
+        return "ask" if self.db.get_setting("lunch_mode") == "ask" else "deduct"
+
+    def set_lunch_mode(self, mode: str) -> None:
+        self.db.set_setting("lunch_mode", "ask" if mode == "ask" else "deduct")
+
+    @property
+    def excel_include_pause(self) -> bool:
+        """Pausen-Einträge als Zeile „Pause“ in den Excel-Stundenzettel übernehmen (Standard: nein)."""
+        return self.db.get_setting("excel_include_pause") == "1"
+
+    def set_excel_include_pause(self, on: bool) -> None:
+        self.db.set_setting("excel_include_pause", "1" if on else "0")
+
     def set_pause(self, start: time, minutes: int) -> None:
         self.db.set_setting("pause_start", start.strftime("%H:%M"))
         self.db.set_setting("pause_minutes", str(minutes))
@@ -466,7 +482,33 @@ class TimeService:
         if self.pause_length <= timedelta(0) or self.db.pause_disabled(day):
             return None
         start = datetime.combine(day, self.pause_start)
-        return start, start + self.pause_length
+        paused = self.paused_total(day)   # eingetragene Pausen ersetzen den Abzug; es bleibt nur der Rest des Fensters
+        return (start + paused, start + self.pause_length) if paused < self.pause_length else None
+
+    def paused_total(self, day: date) -> timedelta:
+        """Dauer der als Eintrag angelegten Pausen des Tages."""
+        now = self.now()
+        return sum((e.duration(now) for e in self.db.load_day(day) if e.kind == PAUSE), timedelta())
+
+    def lunch_state(self, day: date) -> str:
+        """„off“ (abgeschaltet oder 0 min), „paused“ (Pause als Eintrag vorhanden), „auto“ (wird abgezogen)."""
+        if self.pause_length <= timedelta(0) or self.db.pause_disabled(day):
+            return "off"
+        return "paused" if self.paused_total(day) >= self.pause_length else "auto"
+
+    def lunch_prompt_due(self, now: datetime | None = None) -> bool:
+        """Soll jetzt „Pause starten?“ gefragt werden? Nur im Modus „nachfragen“, wenn eine Aufgabe läuft, es heute
+        noch keine Pause gibt und die Mittagszeit begonnen hat (bis eine Stunde bzw. die Pausendauer danach)."""
+        now = now or self.now()
+        if self.lunch_mode != "ask" or self.pause_length <= timedelta(0) or self.db.pause_disabled(now.date()):
+            return False
+        run = self.db.running_entry()
+        if run is None or run.kind != WORK:
+            return False
+        if any(e.kind == PAUSE for e in self.db.load_day(now.date())):
+            return False
+        start = datetime.combine(now.date(), self.pause_start)
+        return start <= now < start + max(self.pause_length, timedelta(hours=1))
 
     def lunch_windows(self, entries: list[Entry]) -> dict[date, tuple[datetime, datetime] | None]:
         return {d: self.lunch_window(d) for d in {e.start.date() for e in entries}}
@@ -537,6 +579,19 @@ class TimeService:
         self.close_stale()
         self._run(self.now().date(), tl.stop, save=True)
 
+    def start_pause(self, minutes: int | None = None) -> None:
+        """Pause als sichtbarer Eintrag; die Aufgabe läuft danach weiter (mit `minutes` endet die Pause von selbst)."""
+        self.close_stale()
+        self._run(self.now().date(), lambda es, now: tl.start_pause(es, now, minutes), save=True)
+
+    def end_pause(self) -> None:
+        self.close_stale()
+        self._run(self.now().date(), tl.end_pause, save=True)
+
+    def current_pause(self) -> Entry | None:
+        run = self.db.running_entry()
+        return run if run and run.kind == PAUSE else None
+
     def set_running_note(self, note: str) -> None:
         run = self.db.running_entry()
         if run and run.note != note:
@@ -601,14 +656,18 @@ class TimeService:
         day = self.db.get_entry(entry_id).start.date()
         self._run(day, self._edit_op(entry_id, changes, overlap), save=True)
 
-    def start_overlaps(self, entry_id: int, changes: dict) -> bool:
-        """Reicht der neue Start in davor liegende Einträge hinein? Dann muss der Nutzer wählen, wie sie angepasst werden."""
+    def overlapped_entries(self, entry_id: int, changes: dict) -> list[Entry]:
+        """Davor liegende Einträge, die der neue Start ganz überdeckt. Dann muss der Nutzer wählen, wie sie
+        angepasst werden."""
         start = changes.get("start")
         if start is None:
-            return False
+            return []
         entries = self.day_entries(self.db.get_entry(entry_id).start.date())
         idx = next((i for i, x in enumerate(entries) if x.id == entry_id), None)
-        return idx is not None and bool(tl.earlier_overlap(entries, idx, start))
+        return [] if idx is None else [entries[i] for i in tl.earlier_overlap(entries, idx, start)]
+
+    def start_overlaps(self, entry_id: int, changes: dict) -> bool:
+        return bool(self.overlapped_entries(entry_id, changes))
 
     @staticmethod
     def _insert_op(new: Entry):

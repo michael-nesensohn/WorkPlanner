@@ -3,6 +3,24 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.13
+- Neuer Knopf „⏸ Pause“ bei der laufenden Aufgabe: die Aufgabe wird angehalten, die Pause erscheint als Eintrag unter
+  „Heute“. In der Pause heißt der Knopf neben der Uhr „▶ Weiter: <Aufgabe>“ (statt „Neu“); er beendet die Pause und
+  setzt dieselbe Aufgabe fort.
+- Unter der Notiz (neben „verrechenbar“) steht, ob die Mittagspause automatisch abgezogen wird (aktiv / aus / als
+  Pause eingetragen), mit dem Schalter „Heute nicht abziehen“. Eine eingetragene Pause ersetzt den automatischen
+  Abzug, nichts wird doppelt abgezogen.
+- Neue Einstellung „Mittagspause“: „Nur abziehen“ (wie bisher) oder „Nachfragen“. Bei „Nachfragen“ erscheint zur
+  Mittagszeit „Pause starten?“ (Pause starten, in 10 Minuten erinnern, nur abziehen, heute keine Pause); die Pause endet
+  nach der eingestellten Dauer von selbst und die Aufgabe läuft weiter.
+- Die Tagesanzeige heißt „Arbeitszeit (ohne Pausen)“.
+- Woche: Pausen sind standardmäßig ausgeblendet (Kästchen „Pausen anzeigen“), die Übersicht hat eine Spalte „Pausen“
+  mit Summe; die Pfeile stehen direkt neben dem Datum.
+- Berichte: Kästchen „Pausen-Einträge anzeigen und exportieren“ (Standard aus); die Export-Spalte „Mittagspause“ entfällt.
+- Excel-Stundenzettel: Einstellung „Pausen mit in den Stundenzettel eintragen“ (Standard aus; an: als Zeile „Pause“).
+- Der Dialog bei überdeckten Einträgen ist verständlicher (listet die betroffenen Einträge; „Behalten“ oder „Kürzen“).
+- Doppelklick auf „Schnellauswahl“ öffnet die Stammdaten. Knöpfe und Notizfeld springen bei Pause/Weiter nicht mehr.
+
 ## 0.1.12
 - Eintrag bearbeiten: neuer Knopf „⇤ Ende des Vorgängers“ setzt den Start lückenlos auf das Ende des vorherigen Eintrags.
 - Eintrag bearbeiten: Start-, Ende- und Dauer-Felder sind schmaler.

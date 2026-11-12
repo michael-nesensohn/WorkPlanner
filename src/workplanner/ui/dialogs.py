@@ -35,19 +35,43 @@ def preview_html(svc: TimeService, old: list[Entry], new: list[Entry], own_id: i
 NO_LINK = "– keine Verknüpfung –"
 
 
+def ask_lunch_pause(parent, minutes: int, start: str) -> str:
+    """Mittagszeit: „start“ (Pause jetzt eintragen), „later“ (in zehn Minuten wieder fragen), „skip“ (heute keine
+    Mittagspause) oder „deduct“ (nur abziehen, nicht fragen)."""
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Question)
+    box.setWindowTitle("Mittagspause")
+    box.setText(f"Es ist Mittagszeit ({start}).\nPause jetzt starten?")
+    box.setInformativeText(f"Die laufende Aufgabe wird beendet, die Pause ({minutes} min) als Eintrag angelegt und die "
+                           "Aufgabe danach automatisch fortgesetzt.")
+    buttons = {}
+    for key, text, role in (("start", "Pause starten", QMessageBox.AcceptRole),
+                            ("later", "In 10 Minuten erinnern", QMessageBox.ActionRole),
+                            ("deduct", f"Nur {minutes} min abziehen", QMessageBox.ActionRole),
+                            ("skip", "Heute keine Pause", QMessageBox.DestructiveRole)):
+        buttons[key] = box.addButton(text, role)
+    box.exec()
+    clicked = box.clickedButton()
+    return next((k for k, b in buttons.items() if b is clicked), "later")
+
+
 def ask_overlap(parent, svc: TimeService, entry_id: int, changes: dict) -> str | None:
-    """Reicht der neue Start in andere Einträge hinein, fragt der Dialog, wie deren Zeiten angepasst werden.
+    """Reicht der neue Start in andere Einträge hinein, fragt der Dialog, was mit ihnen geschehen soll.
     Gibt PUSH/SHORTEN zurück, `None` bei Abbruch. Es entfällt nie ein Eintrag."""
-    if not svc.start_overlaps(entry_id, changes):
+    covered = svc.overlapped_entries(entry_id, changes)
+    if not covered:
         return PUSH
     box = QMessageBox(parent)
     box.setIcon(QMessageBox.Question)
-    box.setWindowTitle("Andere Einträge überdeckt")
-    box.setText("Der neue Start reicht in andere Einträge hinein.\nWie sollen deren Zeiten angepasst werden?")
-    box.setInformativeText("Dauer beibehalten: die anderen Einträge behalten ihre Dauer (eine laufende Aufgabe stoppt "
-                           "davor und läuft danach weiter, sonst folgen sie hinter diesem Eintrag).\n"
-                           "Kürzen: die anderen Einträge werden kürzer und enden spätestens am neuen Start.")
-    keep = box.addButton("Dauer beibehalten", QMessageBox.AcceptRole)
+    box.setWindowTitle("Zeiten überschneiden sich")
+    listing = "<br>".join(f"• {fmt_time(e.start)}–{fmt_time(e.end)}  {svc.entry_label(e)}" for e in covered)
+    box.setTextFormat(Qt.RichText)
+    box.setText("<b>Der frühere Start überdeckt diese Einträge:</b><br>" + listing +
+                "<br><br>Was soll mit ihnen geschehen?")
+    box.setInformativeText("Behalten: Sie behalten ihre Dauer und rücken zeitlich nach hinten. "
+                           "(Bei einer laufenden Aufgabe: Sie stoppt vor ihnen und läuft danach weiter.)\n\n"
+                           "Kürzen: Sie werden kürzer und enden dort, wo dieser Eintrag beginnt.")
+    keep = box.addButton("Behalten", QMessageBox.AcceptRole)
     cut = box.addButton("Kürzen", QMessageBox.AcceptRole)
     box.addButton("Abbrechen", QMessageBox.RejectRole)
     box.exec()

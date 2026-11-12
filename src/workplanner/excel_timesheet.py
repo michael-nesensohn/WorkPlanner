@@ -148,13 +148,14 @@ class DayHours:
         return f"{self.number}  {self.name}" if self.number.strip() else self.name
 
 
-def aggregate(rows: list[dict]) -> list[DayHours]:
-    """Fasst `TimeService.report_rows` je Projekt und Tag zusammen (nur Arbeitszeit, Dauer ohne Mittagspause)."""
+def aggregate(rows: list[dict], include_pause: bool = False) -> list[DayHours]:
+    """Fasst `TimeService.report_rows` je Projekt und Tag zusammen (Arbeitszeit, Dauer ohne Mittagspause; mit
+    `include_pause` zusätzlich die als Eintrag angelegten Pausen unter dem Namen „Pause“)."""
     sums: dict[tuple, float] = defaultdict(float)
     meta: dict[tuple, tuple[str, str]] = {}
     order: list[tuple] = []
     for r in rows:
-        if r["kind"] != "work":
+        if r["kind"] != "work" and not (include_pause and r["kind"] == "pause"):
             continue
         number, name = (r.get("project_number") or "").strip(), r["project"]
         key = (r["date"], ("nr", number.casefold()) if number else ("name", name.strip().casefold()))

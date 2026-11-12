@@ -307,6 +307,40 @@ def resume_after_meeting(entries: list[Entry], now: datetime) -> list[Entry]:
     return out
 
 
+def start_pause(entries: list[Entry], now: datetime, minutes: int | None = None) -> list[Entry]:
+    """Beendet die laufende Aufgabe und startet eine Pause als sichtbaren Eintrag. Die Aufgabe wird nach der Pause
+    fortgesetzt (`end_pause`; mit `minutes` endet die Pause von selbst, siehe `resume_after_meeting`)."""
+    out = list(entries)
+    resume = ""
+    if out and out[-1].running:
+        last = out[-1]
+        if last.kind == PAUSE:
+            return out                                      # es ist schon Pause
+        resume = last.resume or json.dumps({"project_id": last.project_id, "activity_id": last.activity_id,
+                                            "note": last.note, "billable": last.billable,
+                                            "devops_id": last.devops_id})
+        if last.start >= now:
+            out.pop()
+        else:
+            out[-1] = replace(last, end=now, auto_until=None, resume="")
+    until = now + timedelta(minutes=minutes) if minutes else None
+    out.append(Entry(now, None, PAUSE, auto_until=until, resume=resume))
+    return _checked(out, now)
+
+
+def end_pause(entries: list[Entry], now: datetime) -> list[Entry]:
+    """Beendet die laufende Pause; die davor laufende Aufgabe läuft weiter."""
+    if not entries or not entries[-1].running or entries[-1].kind != PAUSE:
+        return list(entries)
+    m = entries[-1]
+    out = list(entries[:-1])
+    if m.start < now:
+        out.append(replace(m, end=now, auto_until=None, resume=""))
+    if m.resume:
+        out.append(Entry(now, None, WORK, **json.loads(m.resume)))
+    return _checked(out, now)
+
+
 def stop(entries: list[Entry], now: datetime) -> list[Entry]:
     if not entries or not entries[-1].running:
         return list(entries)

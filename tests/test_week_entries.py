@@ -55,18 +55,18 @@ def test_every_day_with_its_bookings_like_the_day_table(qapp):
     svc, page = week_setup()
     t = page.entries
     texts = [cell(page, r, 0) for r in range(t.rowCount())]
-    # Mo mit 2 Einträgen + Pause, Di leer, Mi mit 1, Do/Fr leer, Wochenende wird ausgelassen
+    # Mo mit 2 Einträgen (die Pause ist ausgeblendet), Di leer, Mi mit 1, Do/Fr leer, Wochenende wird ausgelassen
     assert texts[0].startswith("Montag 02.11.2026") and "Gearbeitet 3:00 h" in texts[0] and "verrechenbar 1:30 h" in texts[0]
     assert cell(page, 1, 0) == "08:00" and cell(page, 1, 1) == "09:30" and cell(page, 1, 2) == "1:30"
     assert cell(page, 1, 3) == "✓" and cell(page, 1, 4) == "21  Waagen-Anbindung"
     assert cell(page, 1, 5) == "Programmierung" and cell(page, 1, 6) == "#211"
     assert cell(page, 1, 7) == "Schnittstelle gebaut\nTests laufen noch"          # Notiz vollständig, mehrzeilig
     assert cell(page, 2, 4) == "Hausintern" and cell(page, 2, 7) == "Team-Meeting" and cell(page, 2, 3) == ""
-    assert cell(page, 3, 4) == "Pause"                                            # ältere Pausen-Einträge bleiben sichtbar
-    assert texts[4].startswith("Dienstag 03.11.2026") and "nichts gebucht" in texts[4]
-    assert texts[5].startswith("Mittwoch 04.11.2026") and "Gearbeitet 1:15 h" in texts[5]
-    assert cell(page, 6, 7) == "Review"
-    assert texts[7].startswith("Donnerstag") and texts[8].startswith("Freitag")
+    assert not any(cell(page, r, 4) == "Pause" for r in range(t.rowCount()))      # Pausen-Einträge: nur unter „Heute“
+    assert texts[3].startswith("Dienstag 03.11.2026") and "nichts gebucht" in texts[3]
+    assert texts[4].startswith("Mittwoch 04.11.2026") and "Gearbeitet 1:15 h" in texts[4]
+    assert cell(page, 5, 7) == "Review"
+    assert texts[6].startswith("Donnerstag") and texts[7].startswith("Freitag")
     assert not any(x and x.startswith(("Samstag", "Sonntag")) for x in texts)       # Wochenende leer: ausgelassen
     assert texts[-1] == ("Woche gesamt: 4:15 h   ·   davon verrechenbar 2:45 h   ·   "
                          "Wochenstunden Soll 40:00 h   ·   Differenz –35:45 h")
@@ -134,3 +134,15 @@ def test_double_click_opens_the_day_in_the_today_tab(qapp):
     head = next(r for r in range(w.week.entries.rowCount()) if (cell(w.week, r, 0) or "").startswith("Montag"))
     w.week.entries.cellDoubleClicked.emit(head, 0)                   # Tageszeile
     assert w.day == date(2026, 11, 2)
+
+
+def test_week_pauses_hidden_by_default_and_summed_in_the_overview(qapp):
+    svc, page = week_setup()
+    assert not page.show_pauses.isChecked()
+    assert page.days.item(0, 5).text() == "1:00" and page.days.item(7, 5).text() == "1:00"   # Pausensumme immer da
+    assert not any(cell(page, r, 4) == "Pause" for r in range(page.entries.rowCount()))
+    page.show_pauses.setChecked(True)                                                       # auf Wunsch sichtbar
+    t = page.entries
+    assert any(cell(page, r, 4) == "Pause" for r in range(t.rowCount()))
+    assert "Pausen 1:00 h" in cell(page, 0, 0) and "Pausen 1:00 h" in cell(page, t.rowCount() - 1, 0)
+    assert page.days.item(0, 1).text() == "3:00"                                            # Arbeitszeit bleibt gleich

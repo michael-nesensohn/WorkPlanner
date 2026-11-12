@@ -24,8 +24,8 @@ def test_export_has_three_sheets_with_data(tmp_path):
     entries = wb["Einträge"]
     assert entries.max_row == 2  # Kopf + ein Eintrag: die Mittagspause wird nur abgezogen, nicht eingefügt
     from datetime import timedelta
-    assert entries["D2"].value == timedelta(hours=4, minutes=30) and entries["K2"].value == timedelta(minutes=30)
-    assert entries["K1"].value == "Mittagspause (abgezogen)"
+    assert entries["D2"].value == timedelta(hours=4, minutes=30)
+    assert entries["K1"].value is None                      # keine Spalte „Mittagspause“ mehr
     assert entries["F2"].value == "2026-014" and entries["G2"].value == "Kunde A"
     assert entries["I2"].value == "Waage"
     day = wb["Tagessummen"]
@@ -95,3 +95,21 @@ def test_report_page_has_no_start_end_boxes_without_the_ini(tmp_path, monkeypatc
     svc2 = _svc_with_ini(tmp_path, monkeypatch, "[export]\nshow_start_end = true\n")
     assert {"start", "end"} <= set(ReportPage(svc2).column_boxes)
     assert app is not None
+
+
+def test_export_can_leave_out_pause_entries_but_the_day_sum_still_counts_them(tmp_path):
+    from datetime import date, datetime, timedelta
+    from workplanner.export import export_excel
+    d = datetime(2026, 11, 2)
+    rows = [{"date": d.date(), "start": d.replace(hour=8), "end": d.replace(hour=9), "running": False, "kind": "work",
+             "project": "Kunde A", "project_number": "1", "activity": "", "note": "", "billable": True,
+             "devops_id": None, "duration": timedelta(hours=1), "lunch": timedelta(0)},
+            {"date": d.date(), "start": d.replace(hour=9), "end": d.replace(hour=9, minute=30), "running": False,
+             "kind": "pause", "project": "Pause", "project_number": "", "activity": "", "note": "", "billable": False,
+             "devops_id": None, "duration": timedelta(minutes=30), "lunch": timedelta(0)}]
+    for show, expected_rows in ((False, 2), (True, 3)):
+        path = tmp_path / f"out{show}.xlsx"
+        export_excel(path, rows, timedelta(hours=8), show_pauses=show)
+        wb = load_workbook(path)
+        assert wb["Einträge"].max_row == expected_rows
+        assert wb["Tagessummen"]["E2"].value == timedelta(minutes=30)

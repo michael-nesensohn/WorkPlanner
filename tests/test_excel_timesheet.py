@@ -498,3 +498,14 @@ def test_days_per_block_is_detected_automatically_by_default():
     assert len(plan.lines) == 1 and plan.warnings == []                           # Sonntag wird eingetragen
     forced = detect_layout(sheet.grid(80, 60), 11, 2026, replace(DEFAULT_PROFILE, days_per_block=6))
     assert forced.days == 6                                                       # fest eingestellt hat Vorrang
+
+
+def test_aggregate_takes_pauses_only_when_asked():
+    from datetime import date, timedelta
+    rows = [{"kind": "work", "date": date(2026, 11, 2), "project": "Kunde A", "project_number": "1",
+             "duration": timedelta(hours=2)},
+            {"kind": "pause", "date": date(2026, 11, 2), "project": "Pause", "project_number": "",
+             "duration": timedelta(minutes=30)}]
+    assert len(aggregate(rows)) == 1
+    with_pause = aggregate(rows, include_pause=True)
+    assert len(with_pause) == 2 and any(d.name == "Pause" and d.hours == 0.5 for d in with_pause)

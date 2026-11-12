@@ -688,9 +688,9 @@ def test_day_view_shows_net_time_and_deduction_note(qapp):
     assert w.table.item(0, 2).text() == "4:30"                       # 5 h brutto, 30 min Mittagspause abgezogen
     assert "Mittagspause" in w.table.item(0, 2).toolTip() and "5:00 brutto" in w.table.item(0, 2).toolTip()
     assert "4:30 h" in w.total_label.text() and "Pause −0:30 abgezogen" in w.total_label.text()
-    assert w.pause_btn.text() == "Mittagspause für diesen Tag nicht abziehen"
+    assert w.pause_btn.text() == "Heute nicht abziehen"
     w.pause_btn.click()
-    assert w.pause_btn.text() == "Mittagspause wieder abziehen"
+    assert w.pause_btn.text() == "Wieder abziehen"
     assert w.table.item(0, 2).text() == "5:00" and "abgezogen" not in w.total_label.text()
     w.pause_btn.click()
     assert w.table.item(0, 2).text() == "4:30"
@@ -978,3 +978,41 @@ def test_f1_opens_the_manual_at_the_chapter_of_the_current_tab(qapp, monkeypatch
     assert w._manual_win is not None and w._manual_win.isVisible()
     w._manual_win.close()
     assert svc.manual_geometry()                              # gemerkt für das nächste Mal
+
+
+def test_pause_button_stops_the_task_and_continue_resumes_it(qapp):
+    db = Database()
+    seed(db)
+    clock = Clock(9, 0)
+    svc = TimeService(db, clock)
+    w = MainWindow(svc)
+    pid = svc.projects()[0]["id"]
+    clock.set(9)
+    w._pick_project(pid)
+    clock.set(10)
+    w.refresh()
+    assert w.pause_run_btn.isVisible() or not w.isVisible()
+    assert w.pause_run_btn.text() == "⏸ Pause" and "Neu" in w.new_btn.text()
+    w.pause_run_btn.click()
+    # in der Pause ersetzt „Weiter“ den Knopf „Neu“; „Pause“ ist weg, Stopp bleibt
+    assert svc.current().kind == "pause" and w.new_btn.text().startswith("▶  Weiter") and w.pause_run_btn.isHidden()
+    assert svc.project_display(pid) in w.new_btn.toolTip()                 # der Knopf nennt die Aufgabe (Text evtl. gekürzt)
+    assert w.new_btn.width() == w.new_btn.maximumWidth()                   # feste Breite: Notizfeld springt nicht
+    assert not w.stop_btn.isHidden()
+    clock.set(10, 20)
+    w.new_btn.click()
+    run = svc.current()
+    assert run.kind == "work" and run.project_id == pid and "Neu" in w.new_btn.text()
+    assert [(e.kind, e.start.hour, e.start.minute) for e in svc.day_entries(clock().date())] == [
+        ("work", 9, 0), ("pause", 10, 0), ("work", 10, 20)]
+    assert "Mittagspause" in w.lunch_label.text()
+
+
+def test_double_click_on_quick_select_title_opens_the_master_data(qapp):
+    db = Database()
+    seed(db)
+    w = MainWindow(TimeService(db, Clock(9, 0)))
+    opened = []
+    w.show_master = lambda section=0: opened.append(section)
+    w.quick_title.doubleClicked.emit()
+    assert opened == [0] and "Doppelklick" in w.quick_title.toolTip()

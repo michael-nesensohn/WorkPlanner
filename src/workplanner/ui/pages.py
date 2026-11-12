@@ -93,6 +93,11 @@ class MasterDataPage(QWidget):
         self.pause_min = QSpinBox()
         self.pause_min.setRange(0, 240)
         self.pause_min.setSuffix(" min  (0 = keine Pause)")
+        self.lunch_mode = QComboBox()
+        self.lunch_mode.addItem("Nur abziehen (automatisch)", "deduct")
+        self.lunch_mode.addItem("Nachfragen und Pause als Eintrag anlegen", "ask")
+        self.lunch_mode.setToolTip("Nachfragen: zur Mittagspause erscheint „Pause starten?“. Die Pause wird dann als "
+                                   "Eintrag angelegt, die Aufgabe läuft danach weiter.")
         self.target = QTimeEdit()
         self.target.setDisplayFormat("HH:mm")
         self.default_project = QComboBox()
@@ -138,6 +143,7 @@ class MasterDataPage(QWidget):
         sf.addRow("", self.autostart_status)
         sf.addRow("Mittagspause ab (wird abgezogen)", self.pause_start)
         sf.addRow("Pausendauer", self.pause_min)
+        sf.addRow("Mittagspause", self.lunch_mode)
         sf.addRow("Soll-Arbeitszeit pro Tag (Std:Min)", self.target)
 
         top = QHBoxLayout()
@@ -172,6 +178,9 @@ class MasterDataPage(QWidget):
         prow.addWidget(browse)
         prow.addWidget(check)
         self.excel_save = QCheckBox("Datei nach dem Eintragen speichern")
+        self.excel_pause = QCheckBox("Pausen mit in den Stundenzettel eintragen (als Zeile „Pause“)")
+        self.excel_pause.setToolTip("Aus: nur Arbeitszeit geht nach Excel. An: die als Eintrag angelegten Pausen werden "
+                                    "unter dem Namen „Pause“ eingetragen (die Vorlage braucht dafür eine Zeile „Pause“).")
         self.excel_status = QLabel("Eintragen: Berichte → „In Excel-Stundenzettel eintragen …“. Excel muss installiert sein.")
         self.excel_status.setWordWrap(True)
         self.excel_status.setStyleSheet("color:#667")
@@ -187,6 +196,7 @@ class MasterDataPage(QWidget):
         xl.addRow("Datei", prow)
         xl.addRow("Vorlage", qrow)
         xl.addRow("", self.excel_save)
+        xl.addRow("", self.excel_pause)
         xl.addRow("", self.excel_status)
         lay.addWidget(xbox)
         lay.addStretch(1)
@@ -198,6 +208,8 @@ class MasterDataPage(QWidget):
         self.default_project.currentIndexChanged.connect(self._save_settings)
         self.excel_path.editingFinished.connect(self._save_excel)
         self.excel_save.clicked.connect(lambda _: self._save_excel())
+        self.excel_pause.clicked.connect(lambda _: self._save_excel())
+        self.lunch_mode.currentIndexChanged.connect(self._save_settings)
         self.autostart_cb.clicked.connect(self._autostart_changed)
         self.start_tray_cb.clicked.connect(self._start_tray_changed)
         self.tray_cb.clicked.connect(lambda on: self.svc.set_tray_mode(on))
@@ -230,7 +242,7 @@ class MasterDataPage(QWidget):
             it = QListWidgetItem(f"{a['name']}   ({scope})")
             it.setData(256, a["id"])
             self.activities.addItem(it)
-        for w in (self.pause_start, self.pause_min, self.target, self.default_project):
+        for w in (self.pause_start, self.pause_min, self.target, self.default_project, self.lunch_mode):
             w.blockSignals(True)
         self.default_project.clear()
         current = self.svc.default_project_id(create=False)
@@ -242,6 +254,7 @@ class MasterDataPage(QWidget):
         self._show_hotkey(self.svc.hotkey)
         self.excel_path.setText(self.svc.excel_path)
         self.excel_save.setChecked(self.svc.excel_save)
+        self.excel_pause.setChecked(self.svc.excel_include_pause)
         self.excel_profile_label.setText(self.svc.excel_profile.name)
         self.db_warn.blockSignals(True)
         self.db_warn.setValue(self.svc.db_warn_mb)
@@ -255,13 +268,15 @@ class MasterDataPage(QWidget):
         s = self.svc.pause_start
         self.pause_start.setTime(QTime(s.hour, s.minute))
         self.pause_min.setValue(int(self.svc.pause_length.total_seconds() // 60))
+        self.lunch_mode.setCurrentIndex(max(0, self.lunch_mode.findData(self.svc.lunch_mode)))
         tm = int(self.svc.daily_target.total_seconds() // 60)
         self.target.setTime(QTime(tm // 60, tm % 60))
-        for w in (self.pause_start, self.pause_min, self.target, self.default_project):
+        for w in (self.pause_start, self.pause_min, self.target, self.default_project, self.lunch_mode):
             w.blockSignals(False)
 
     def _save_excel(self) -> None:
         self.svc.set_excel(self.excel_path.text(), self.excel_save.isChecked())
+        self.svc.set_excel_include_pause(self.excel_pause.isChecked())
         self.changed.emit()  # die Berichte-Seite aktiviert ihren Knopf, sobald eine Datei eingestellt ist
 
     def _browse_excel(self) -> None:
@@ -342,6 +357,7 @@ class MasterDataPage(QWidget):
     def _save_settings(self) -> None:
         t = self.pause_start.time()
         self.svc.set_pause(time(t.hour(), t.minute()), self.pause_min.value())
+        self.svc.set_lunch_mode(self.lunch_mode.currentData())
         self.svc.set_daily_target(self.target.time().hour() * 60 + self.target.time().minute())
         if self.default_project.currentData() is not None:
             self.svc.set_default_project(self.default_project.currentData())
@@ -462,12 +478,18 @@ class WeekPage(QWidget):
         nxt.clicked.connect(lambda: self._go(7))
         nav = QHBoxLayout()
         nav.addWidget(prev)
-        nav.addWidget(self.title, 1)
+        nav.addWidget(self.title)       # Pfeile direkt neben dem Datum, nicht am Fensterrand
         nav.addWidget(nxt)
+        nav.addStretch(1)
+        self.show_pauses = QCheckBox("Pausen anzeigen")
+        self.show_pauses.setToolTip("Zeigt unter „Einträge“ die Pausen und ihre Summe. Die Spalte „Pausen“ in der "
+                                    "Übersicht ist immer da (Pausen-Einträge plus abgezogene Mittagspause).")
+        self.show_pauses.toggled.connect(lambda _: self.refresh())
+        nav.addWidget(self.show_pauses)
 
         # Übersicht
-        self.days = QTableWidget(0, 5)
-        self.days.setHorizontalHeaderLabels(["Tag", "Gearbeitet", "davon verrechenbar", "Soll", "Differenz"])
+        self.days = QTableWidget(0, 6)
+        self.days.setHorizontalHeaderLabels(["Tag", "Gearbeitet", "davon verrechenbar", "Soll", "Differenz", "Pausen"])
         self.projects = QTableWidget(0, 2)
         self.projects.setHorizontalHeaderLabels(["Projekt", "Stunden"])
         for t in (self.days, self.projects):
@@ -508,7 +530,12 @@ class WeekPage(QWidget):
     def refresh(self) -> None:
         last = self.monday + timedelta(days=6)
         self.title.setText(f"{self.monday:%d.%m.} – {last:%d.%m.%Y}")
-        rows = self.svc.report_rows(self.monday, last)
+        all_rows = self.svc.report_rows(self.monday, last)
+        show = self.show_pauses.isChecked()
+        pause_day: dict[date, timedelta] = defaultdict(timedelta)   # Pausen-Einträge plus abgezogene Mittagspause
+        for r in all_rows:
+            pause_day[r["date"]] += r["duration"] if r["kind"] == "pause" else r["lunch"]
+        rows = all_rows if show else [r for r in all_rows if r["kind"] != "pause"]   # Pausen nur auf Wunsch
         per_day: dict[date, timedelta] = defaultdict(timedelta)
         per_project: dict[str, timedelta] = defaultdict(timedelta)
         billable_day: dict[date, timedelta] = defaultdict(timedelta)
@@ -527,17 +554,18 @@ class WeekPage(QWidget):
             total += worked
             self._row(self.days, i, [f"{MONDAY_NAMES[i]} {d:%d.%m.}", fmt_duration(worked),
                                      fmt_duration(billable_day[d]), fmt_duration(target),
-                                     self._diff(worked - target)])
+                                     self._diff(worked - target), fmt_duration(pause_day[d])])
         week_target = self.svc.daily_target * 5
         self._row(self.days, 7, ["Summe", fmt_duration(total),
                                  fmt_duration(sum(billable_day.values(), timedelta())),
-                                 fmt_duration(week_target), self._diff(total - week_target)], bold=True)
+                                 fmt_duration(week_target), self._diff(total - week_target),
+                                 fmt_duration(sum(pause_day.values(), timedelta()))], bold=True)
         self.projects.setRowCount(len(per_project))
         for i, (name, dur) in enumerate(sorted(per_project.items())):
             self._row(self.projects, i, [name, fmt_duration(dur)])
-        self._fill_entries(rows, per_day, billable_day, total)
+        self._fill_entries(rows, per_day, billable_day, total, pause_day, show)
 
-    def _fill_entries(self, rows: list[dict], per_day, billable_day, total: timedelta) -> None:
+    def _fill_entries(self, rows: list[dict], per_day, billable_day, total: timedelta, pause_day, show: bool) -> None:
         by_day: dict[date, list[dict]] = defaultdict(list)
         for r in rows:
             by_day[r["date"]].append(r)
@@ -559,7 +587,9 @@ class WeekPage(QWidget):
             target = self.svc.daily_target if d.weekday() < 5 else timedelta()
             text += (f"   ·   Gearbeitet {fmt_duration(per_day[d])} h   ·   davon verrechenbar "
                      f"{fmt_duration(billable_day[d])} h   ·   Soll {fmt_duration(target)} h   ·   "
-                     f"Differenz {self._diff(per_day[d] - target)} h" if entries else "   ·   nichts gebucht")
+                     f"Differenz {self._diff(per_day[d] - target)}"
+                     f" h{f'   ·   Pausen {fmt_duration(pause_day[d])} h' if show else ''}"
+                     if entries else "   ·   nichts gebucht")
             head = QTableWidgetItem(text)
             font = head.font()
             font.setBold(True)
@@ -598,7 +628,9 @@ class WeekPage(QWidget):
         tot = QTableWidgetItem(f"Woche gesamt: {fmt_duration(total)} h   ·   davon verrechenbar "
                                f"{fmt_duration(sum(billable_day.values(), timedelta()))} h   ·   "
                                f"Wochenstunden Soll {fmt_duration(week_target)} h   ·   "
-                               f"Differenz {self._diff(total - week_target)} h")
+                               f"Differenz {self._diff(total - week_target)} h"
+                               + (f"   ·   Pausen {fmt_duration(sum(pause_day.values(), timedelta()))} h"
+                                  if show else ""))
         font = tot.font()
         font.setBold(True)
         tot.setFont(font)
@@ -657,12 +689,17 @@ class ReportPage(QWidget):
         form.addRow("Von", self.first)
         form.addRow("Bis", self.last)
         form.addRow("Projekt", self.project)
+        self.show_pauses = QCheckBox("Pausen-Einträge anzeigen und exportieren")
+        self.show_pauses.setToolTip("Aus (Standard): die Pausen fehlen in der Vorschau und im Blatt „Einträge“. "
+                                    "Die Tagesübersicht zählt sie immer.")
+        self.show_pauses.toggled.connect(self._update)
+        form.addRow("", self.show_pauses)
         box = QGroupBox("Spalten im Export (Blatt „Einträge“)")
         grid = QHBoxLayout(box)
         chosen = self.svc.export_columns
         self.column_boxes: dict[str, QCheckBox] = {}
         for key in self.svc.available_export_columns:
-            cb = QCheckBox(COLUMNS[key][0].replace(" (abgezogen)", ""))
+            cb = QCheckBox(COLUMNS[key][0])
             cb.setChecked(key in chosen)
             cb.toggled.connect(self._save_columns)
             self.column_boxes[key] = cb
@@ -705,9 +742,11 @@ class ReportPage(QWidget):
     def _range(self) -> tuple[date, date]:
         return self.first.date().toPython(), self.last.date().toPython()
 
-    def _rows(self) -> list[dict]:
+    def _rows(self, with_pauses: bool | None = None) -> list[dict]:
         a, b = self._range()
-        return self.svc.report_rows(a, b, self.project.currentData())
+        rows = self.svc.report_rows(a, b, self.project.currentData())
+        shown = self.show_pauses.isChecked() if with_pauses is None else with_pauses
+        return rows if shown else [r for r in rows if r["kind"] != "pause"]
 
     def _fill_preview(self, rows: list[dict]) -> None:
         cols = self._columns()
@@ -758,7 +797,8 @@ class ReportPage(QWidget):
         if not path:
             return
         try:
-            export_excel(path, self._rows(), self.svc.daily_target, self._columns())
+            export_excel(path, self._rows(with_pauses=True), self.svc.daily_target, self._columns(),
+                         show_pauses=self.show_pauses.isChecked())
         except OSError as ex:
             QMessageBox.warning(self, "Export", f"Datei konnte nicht geschrieben werden:\n{ex}")
             return

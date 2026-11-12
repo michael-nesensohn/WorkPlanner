@@ -382,3 +382,48 @@ def test_manual_entry_starting_at_a_minute_boundary_fits_after_an_entry_ending_w
     assert [(e.note, e.start.strftime("%H:%M:%S")) for e in got] == [
         ("früh", "07:18:20"), ("neu", "09:15:42"), ("läuft", "10:15:42")]
     assert got[1].end - got[1].start == timedelta(hours=1)
+
+
+def test_pause_entry_replaces_the_lunch_deduction_and_ends_with_the_task_running(env):
+    svc, clock, a, b, act = env
+    clock.set(8)
+    svc.start_task(a, act, "Arbeit")
+    clock.set(12, 0)
+    assert svc.lunch_state(DAY) == "auto"
+    svc.start_pause()
+    clock.set(12, 40)
+    svc.end_pause()
+    run = svc.current()
+    assert run.kind == WORK and run.note == "Arbeit"
+    assert svc.lunch_state(DAY) == "paused" and svc.lunch_window(DAY) is None   # 40 min Pause ≥ 30 min: kein Abzug mehr
+    clock.set(13, 0)
+    assert svc.work_total(svc.day_entries(DAY)) == timedelta(hours=4) + timedelta(minutes=20)   # 8–12 + 12:40–13:00
+
+
+def test_partial_pause_only_deducts_the_rest_of_the_lunch_time(env):
+    svc, clock, a, b, act = env
+    clock.set(8)
+    svc.start_task(a, act, "Arbeit")
+    clock.set(12, 0)
+    svc.start_pause()
+    clock.set(12, 10)
+    svc.end_pause()
+    clock.set(13, 0)
+    assert svc.paused_total(DAY) == timedelta(minutes=10)
+    # Arbeit 8–12 (4 h) + 12:10–13:00 (50 min), davon 20 min Rest der Mittagspause abgezogen
+    assert svc.work_total(svc.day_entries(DAY)) == timedelta(hours=4, minutes=30)
+
+
+def test_lunch_prompt_only_in_ask_mode_while_a_task_runs_and_without_a_pause(env):
+    svc, clock, a, b, act = env
+    clock.set(11, 0)
+    svc.start_task(a, act, "Arbeit")
+    clock.set(12, 5)
+    assert not svc.lunch_prompt_due()                     # Standard: nur abziehen
+    svc.set_lunch_mode("ask")
+    assert svc.lunch_prompt_due()
+    clock.set(11, 59)
+    assert not svc.lunch_prompt_due()
+    clock.set(12, 5)
+    svc.start_pause(30)
+    assert not svc.lunch_prompt_due()                     # es gibt schon eine Pause
