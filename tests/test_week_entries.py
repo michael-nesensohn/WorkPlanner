@@ -62,7 +62,7 @@ def test_every_day_with_its_bookings_like_the_day_table(qapp):
     assert cell(page, 1, 5) == "Programmierung" and cell(page, 1, 6) == "#211"
     assert cell(page, 1, 7) == "Schnittstelle gebaut\nTests laufen noch"          # Notiz vollständig, mehrzeilig
     assert cell(page, 2, 4) == "Hausintern" and cell(page, 2, 7) == "Team-Meeting" and cell(page, 2, 3) == ""
-    assert not any(cell(page, r, 4) == "Pause" for r in range(t.rowCount()))      # Pausen-Einträge: nur unter „Heute“
+    assert not any(cell(page, r, 4) == "Mittagspause" for r in range(t.rowCount()))      # Pausen-Einträge: nur unter „Heute“
     assert texts[3].startswith("Dienstag 03.11.2026") and "nichts gebucht" in texts[3]
     assert texts[4].startswith("Mittwoch 04.11.2026") and "Gearbeitet 1:15 h" in texts[4]
     assert cell(page, 5, 7) == "Review"
@@ -140,9 +140,9 @@ def test_week_pauses_hidden_by_default_and_summed_in_the_overview(qapp):
     svc, page = week_setup()
     assert not page.show_pauses.isChecked()
     assert page.days.item(0, 5).text() == "1:00" and page.days.item(7, 5).text() == "1:00"   # Pausensumme immer da
-    assert not any(cell(page, r, 4) == "Pause" for r in range(page.entries.rowCount()))
+    assert not any(cell(page, r, 4) == "Mittagspause" for r in range(page.entries.rowCount()))
     page.show_pauses.setChecked(True)                                                       # auf Wunsch sichtbar
     t = page.entries
-    assert any(cell(page, r, 4) == "Pause" for r in range(t.rowCount()))
+    assert any(cell(page, r, 4) == "Mittagspause" for r in range(t.rowCount()))
     assert "Pausen 1:00 h" in cell(page, 0, 0) and "Pausen 1:00 h" in cell(page, t.rowCount() - 1, 0)
     assert page.days.item(0, 1).text() == "3:00"                                            # Arbeitszeit bleibt gleich

@@ -316,13 +316,16 @@ def story(s: Screens) -> list:
     add(P("Pausen und Mittagspause", H2))
     add(P("Die Mittagspause (voreingestellt 12:00, 30 Minuten) wird nicht gebucht, sondern aus der Dauer der Einträge "
           "herausgerechnet, die in dieses Zeitfenster fallen. Ein Hinweis im Tooltip der Dauer zeigt den Abzug. Unter der "
-          "Notiz steht, ob der Abzug aktiv ist; für einen einzelnen Tag lässt er sich mit <b>Heute nicht abziehen</b> "
-          "abschalten (und mit <b>Wieder abziehen</b> zurückholen)."))
+          "Notiz steht, ob der Abzug aktiv ist; für einen einzelnen Tag lässt er sich mit <b>Keine Mittagspause</b> "
+          "abschalten (und mit <b>Mittagspause</b> wieder einschalten)."))
     add(bullets([
         "Mit <b>⏸ Pause</b> legen Sie eine echte Pause als Eintrag an. Sie ersetzt dann den Abzug der Mittagspause; die "
         "Summen heißen „Arbeitszeit (ohne Pausen)“.",
-        "In den Einstellungen wählen Sie, ob zur Mittagszeit <b>automatisch abgezogen</b> wird oder WorkPlanner "
-        "<b>nachfragt</b> („Pause starten?“: jetzt, später, abziehen oder nicht).",
+        "In den Einstellungen wählen Sie, ob WorkPlanner zur Mittagszeit <b>nachfragt</b> („Pause starten?“: jetzt, "
+        "später, einfügen mit wählbarem Beginn und Länge, oder nicht) oder ob es <b>gar keinen Pausenabzug</b> gibt. Bis zur Antwort wird die "
+        "Mittagspause abgezogen.",
+        "Im Modus „Nachfragen“ trägt <b>Pause nachtragen</b> die Mittagspause nachträglich ein, falls die Nachfrage "
+        "verpasst wurde. Die Aufgabe, die zu dieser Zeit lief, wird aufgetrennt und läuft danach weiter.",
     ]))
 
     # --- 6 Outlook --------------------------------------------------------------------------------------------
@@ -511,7 +514,7 @@ def story(s: Screens) -> list:
         ["Teams-Anrufe", "Nachfrage nach Anrufen ein/aus"],
         ["Hinweis bei Datenbank größer als", "Grenze in MB für die Warnung beim Start (0 = nie); zeigt die aktuelle Größe"],
         ["Mittagspause ab / Pausendauer", "Zeitfenster, das von der Arbeitszeit abgezogen wird (0 min = keine Pause)"],
-        ["Mittagspause", "automatisch abziehen oder zur Mittagszeit nachfragen („Pause starten?“)"],
+        ["Mittagspause", "zur Mittagszeit nachfragen („Pause starten?“) oder kein Pausenabzug"],
         ["Pausen in Excel", "Pausen-Einträge als Zeile „Pause“ in den Excel-Stundenzettel eintragen (Standard: aus)"],
         ["Soll-Arbeitszeit pro Tag", "Grundlage für Soll, Soll-Ende und alle Differenzen (Montag bis Freitag)"],
         ["Excel-Stundenzettel", "Datei für den Eintrag der Stunden; „Datei nach dem Eintragen speichern“"],

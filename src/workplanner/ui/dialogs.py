@@ -8,7 +8,7 @@ from PySide6.QtCore import QDate, Qt, QTime, Signal
 from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (QCalendarWidget, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
                                QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
-                               QRadioButton, QTimeEdit, QVBoxLayout)
+                               QRadioButton, QSpinBox, QTimeEdit, QVBoxLayout)
 
 from ..service import TimeService
 from .feature_panel import group_items
@@ -37,22 +37,58 @@ NO_LINK = "– keine Verknüpfung –"
 
 def ask_lunch_pause(parent, minutes: int, start: str) -> str:
     """Mittagszeit: „start“ (Pause jetzt eintragen), „later“ (in zehn Minuten wieder fragen), „skip“ (heute keine
-    Mittagspause) oder „deduct“ (nur abziehen, nicht fragen)."""
+    Mittagspause) oder „insert“ (Pause zur Mittagszeit als Eintrag einfügen, Beginn und Länge änderbar; die Aufgabe läuft weiter)."""
     box = QMessageBox(parent)
     box.setIcon(QMessageBox.Question)
     box.setWindowTitle("Mittagspause")
     box.setText(f"Es ist Mittagszeit ({start}).\nPause jetzt starten?")
     box.setInformativeText(f"Die laufende Aufgabe wird beendet, die Pause ({minutes} min) als Eintrag angelegt und die "
-                           "Aufgabe danach automatisch fortgesetzt.")
+                           "Aufgabe danach automatisch fortgesetzt. „Einfügen“ trägt die Pause nachträglich ein (Beginn und Länge "
+                           "wählbar) und lässt die Aufgabe einfach weiterlaufen.")
     buttons = {}
     for key, text, role in (("start", "Pause starten", QMessageBox.AcceptRole),
                             ("later", "In 10 Minuten erinnern", QMessageBox.ActionRole),
-                            ("deduct", f"Nur {minutes} min abziehen", QMessageBox.ActionRole),
+                            ("insert", "Pause einfügen …", QMessageBox.ActionRole),
                             ("skip", "Heute keine Pause", QMessageBox.DestructiveRole)):
         buttons[key] = box.addButton(text, role)
     box.exec()
     clicked = box.clickedButton()
     return next((k for k, b in buttons.items() if b is clicked), "later")
+
+
+def ask_pause_times(parent, start: time, minutes: int) -> tuple[time, int] | None:
+    """Beginn und Länge der nachträglich einzufügenden Pause wählen. Gibt (Beginn, Minuten) oder `None` zurück."""
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Pause einfügen")
+    begin = QTimeEdit(QTime(start.hour, start.minute))
+    begin.setDisplayFormat("HH:mm")
+    length = QSpinBox()
+    length.setRange(1, 240)
+    length.setValue(max(1, minutes))
+    length.setSuffix(" min")
+    end = QLabel()
+
+    def show_end(*_):
+        e = begin.time().addSecs(length.value() * 60)
+        end.setText(f"{e.toString('HH:mm')} Uhr")
+    begin.timeChanged.connect(show_end)
+    length.valueChanged.connect(show_end)
+    show_end()
+    form = QFormLayout()
+    form.addRow("Beginn", begin)
+    form.addRow("Länge", length)
+    form.addRow("Ende", end)
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+    buttons.accepted.connect(dlg.accept)
+    buttons.rejected.connect(dlg.reject)
+    lay = QVBoxLayout(dlg)
+    lay.addWidget(QLabel("Die Aufgabe, die in dieser Zeit lief, wird aufgetrennt und läuft danach weiter."))
+    lay.addLayout(form)
+    lay.addWidget(buttons)
+    if not dlg.exec():
+        return None
+    t = begin.time()
+    return time(t.hour(), t.minute()), length.value()
 
 
 def ask_overlap(parent, svc: TimeService, entry_id: int, changes: dict) -> str | None:

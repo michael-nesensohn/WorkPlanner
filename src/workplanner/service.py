@@ -50,11 +50,12 @@ class TimeService:
 
     @property
     def lunch_mode(self) -> str:
-        """„deduct“: Mittagspause nur abziehen; „ask“: zur Pausenzeit nachfragen und die Pause als Eintrag anlegen."""
-        return "ask" if self.db.get_setting("lunch_mode") == "ask" else "deduct"
+        """„ask“: zur Pausenzeit nachfragen und die Pause als Eintrag anlegen (bis dahin wird sie abgezogen);
+        „off“: gar kein Pausenabzug. (Der frühere Modus „nur abziehen“ gibt es nicht mehr: gilt als „ask“.)"""
+        return "off" if self.db.get_setting("lunch_mode") == "off" else "ask"
 
     def set_lunch_mode(self, mode: str) -> None:
-        self.db.set_setting("lunch_mode", "ask" if mode == "ask" else "deduct")
+        self.db.set_setting("lunch_mode", "off" if mode == "off" else "ask")
 
     PDF_HEADER_KEYS = ("title", "name", "company", "extra")
 
@@ -507,7 +508,7 @@ class TimeService:
         return ""
 
     def entry_label(self, e: Entry) -> str:
-        return "Pause" if e.kind == PAUSE else (self.project_name(e.project_id) or "–")
+        return ("Mittagspause" if e.auto_pause else "Pause") if e.kind == PAUSE else (self.project_name(e.project_id) or "–")
 
     # --- Kern: Operation auf einem Tag ausführen ------------------------------
     def _finalize(self, day: date, entries: list[Entry], now: datetime) -> list[Entry]:
@@ -533,7 +534,7 @@ class TimeService:
     # --- Mittagspause: wird am Tagesende abgezogen, nicht als Eintrag eingefügt --------------------
     def lunch_window(self, day: date) -> tuple[datetime, datetime] | None:
         """Zeitfenster der Mittagspause (None, wenn sie für den Tag abgeschaltet ist oder 0 min dauert)."""
-        if self.pause_length <= timedelta(0) or self.db.pause_disabled(day):
+        if self.lunch_mode == "off" or self.pause_length <= timedelta(0) or self.db.pause_disabled(day):
             return None
         start = datetime.combine(day, self.pause_start)
         paused = self.paused_total(day)   # eingetragene Pausen ersetzen den Abzug; es bleibt nur der Rest des Fensters
@@ -546,7 +547,7 @@ class TimeService:
 
     def lunch_state(self, day: date) -> str:
         """„off“ (abgeschaltet oder 0 min), „paused“ (Pause als Eintrag vorhanden), „auto“ (wird abgezogen)."""
-        if self.pause_length <= timedelta(0) or self.db.pause_disabled(day):
+        if self.lunch_mode == "off" or self.pause_length <= timedelta(0) or self.db.pause_disabled(day):
             return "off"
         return "paused" if self.paused_total(day) >= self.pause_length else "auto"
 
@@ -633,10 +634,25 @@ class TimeService:
         self.close_stale()
         self._run(self.now().date(), tl.stop, save=True)
 
-    def start_pause(self, minutes: int | None = None) -> None:
-        """Pause als sichtbarer Eintrag; die Aufgabe läuft danach weiter (mit `minutes` endet die Pause von selbst)."""
+    def start_pause(self, minutes: int | None = None, lunch: bool = False) -> None:
+        """Pause als sichtbarer Eintrag; die Aufgabe läuft danach weiter (mit `minutes` endet die Pause von selbst).
+        `lunch`: Der Eintrag heißt „Mittagspause“, sonst „Pause“."""
         self.close_stale()
-        self._run(self.now().date(), lambda es, now: tl.start_pause(es, now, minutes), save=True)
+        self._run(self.now().date(), lambda es, now: tl.start_pause(es, now, minutes, lunch), save=True)
+
+    def previous_task(self) -> Entry | None:
+        """Die Aufgabe vor der laufenden (heute), falls sie statt der laufenden weiterlaufen könnte."""
+        run = self.db.running_entry()
+        if run is None or run.kind != WORK:
+            return None
+        entries = self.db.load_day(run.start.date())
+        prev = entries[-2] if len(entries) >= 2 and entries[-1].id == run.id else None
+        return prev if prev is not None and prev.kind == WORK and prev.end is not None else None
+
+    def revert_to_previous(self) -> None:
+        """Verklickt: Die laufende Aufgabe wird verworfen, die vorherige läuft weiter (ihr gehört die Zeit dazwischen)."""
+        self.close_stale()
+        self._run(self.now().date(), tl.revert_to_previous, save=True)
 
     def end_pause(self) -> None:
         self.close_stale()
@@ -750,12 +766,14 @@ class TimeService:
 
     def delete_entry(self, entry_id: int) -> None:
         entry = self.db.get_entry(entry_id)
-        if entry.kind == PAUSE:
+        if entry.kind == PAUSE and entry.auto_pause:   # Mittagspause: für den Tag nicht abziehen
             self.remove_pause(entry.start.date())
             return
 
         def op(entries: list[Entry], now: datetime) -> list[Entry]:
             idx = next(i for i, e in enumerate(entries) if e.id == entry_id)
+            if entries[idx].kind == PAUSE:   # normale Pause: nur sie entfällt, die Aufgabe läuft durch
+                return tl.remove_pause(entries, idx, now)
             return tl.delete(entries, idx, now)
         self._run(entry.start.date(), op, save=True)
 
@@ -776,7 +794,7 @@ class TimeService:
                     entries = (tl.remove_pause(entries, idx, now) if entries[idx].kind == PAUSE
                                else tl.delete(entries, idx, now))
                 return entries
-            if any(e.kind == PAUSE and e.id in ids for e in self.db.load_day(day)):
+            if any(e.kind == PAUSE and e.auto_pause and e.id in ids for e in self.db.load_day(day)):
                 self.db.set_pause_disabled(day, True)
             self._run(day, op, save=True)
 
@@ -825,14 +843,40 @@ class TimeService:
 
     # --- Pause pro Tag ----------------------------------------------------------------------
     def remove_pause(self, day: date) -> None:
-        """Zieht für diesen Tag keine Mittagspause ab. Früher automatisch eingefügte Pausen-Einträge des
-        Tages werden dabei entfernt (der Eintrag davor reicht dann bis zum nächsten)."""
+        """Zieht für diesen Tag keine Mittagspause ab. Als „Mittagspause“ eingetragene Einträge (auch früher
+        automatisch eingefügte) werden dabei entfernt (der Eintrag davor reicht dann bis zum nächsten). Normale
+        Pausen bleiben."""
         def op(entries: list[Entry], now: datetime) -> list[Entry]:
             for i, e in enumerate(entries):
-                if e.kind == PAUSE:
+                if e.kind == PAUSE and e.auto_pause:   # nur Mittagspausen; normale Pausen bleiben
                     return op(tl.remove_pause(entries, i, now), now)
             return entries
         self.db.set_pause_disabled(day, True)
+        self._run(day, op, save=True)
+
+    def add_lunch_pause(self, day: date, start: time | None = None, minutes: int | None = None) -> None:
+        """Trägt die Mittagspause nachträglich ein (ohne Angaben zur eingestellten Zeit); Eintrag „Mittagspause“."""
+        if self.lunch_mode == "off" or self.pause_length <= timedelta(0):
+            raise TimelineError("Die Mittagspause ist abgeschaltet.")
+        if any(e.kind == PAUSE and e.auto_pause for e in self.db.load_day(day)):
+            raise TimelineError("Für diesen Tag gibt es schon eine Mittagspause.")
+        self.add_pause(day, start or self.pause_start, minutes or int(self.pause_length.total_seconds() // 60), True)
+        self.db.set_pause_disabled(day, False)
+
+    def add_pause(self, day: date, start: time, minutes: int, lunch: bool = False) -> None:
+        """Trägt eine Pause nachträglich als Eintrag ein („Pause“, mit `lunch` „Mittagspause“). Die Aufgabe, die dort
+        lief, wird aufgetrennt und läuft danach mit denselben Angaben weiter. Endet die Pause erst in der Zukunft,
+        läuft sie noch und setzt die Aufgabe zu ihrem Ende selbst fort."""
+        begin = datetime.combine(day, start)
+        end = begin + timedelta(minutes=minutes)
+        now = self.now()
+        if begin >= now:
+            raise TimelineError("Die Pause hat noch nicht begonnen.")
+        if end > now:
+            op = lambda es, n: tl.pause_until(es, begin, end, n, lunch)  # noqa: E731
+        else:
+            new = Entry(begin, end, PAUSE, auto_pause=lunch)
+            op = lambda es, n: tl.place(es, new, n)  # noqa: E731
         self._run(day, op, save=True)
 
     def restore_pause(self, day: date) -> None:

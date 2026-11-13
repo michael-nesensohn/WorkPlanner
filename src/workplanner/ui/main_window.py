@@ -5,7 +5,7 @@ import ctypes
 import json
 import os
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 from PySide6.QtCore import QEvent, QItemSelectionModel, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QShortcut
@@ -21,7 +21,7 @@ from .. import demo as demo_data
 from ..manual import manual_path
 from ..outlook import read_appointments
 from ..timeline import PAUSE, TimelineError, removed_entries
-from .dialogs import CalendarDialog, EntryDialog, ask_lunch_pause, NoteEdit, RunningTimeDialog, fmt_duration, fmt_time, note_one_line
+from .dialogs import CalendarDialog, EntryDialog, ask_lunch_pause, ask_pause_times, NoteEdit, RunningTimeDialog, fmt_duration, fmt_time, note_one_line
 from .devops_page import DevOpsPage
 from .feature_panel import FeatureFeed, FeaturePanel, to_cache
 from .tiles import TileButton
@@ -295,6 +295,11 @@ class MainWindow(QMainWindow):
         self.pause_btn = QPushButton(objectName="soft")
         self.pause_btn.clicked.connect(self._toggle_pause)
         row.addWidget(self.pause_btn)
+        self.add_pause_btn = QPushButton("Pause nachtragen", objectName="soft")
+        self.add_pause_btn.setToolTip("Eine (normale) Pause nachträglich als Eintrag einfügen; die Aufgabe, die dort lief, "
+                                      "wird aufgetrennt und läuft danach weiter")
+        self.add_pause_btn.clicked.connect(self._add_normal_pause)
+        row.addWidget(self.add_pause_btn)
         self.pause_run_btn = QPushButton("⏸ Pause", objectName="soft")
         self.pause_run_btn.setToolTip("Aufgabe anhalten und die Pause als Eintrag anlegen; „Weiter“ setzt die Aufgabe fort")
         self.pause_run_btn.clicked.connect(self._pause_clicked)
@@ -310,14 +315,22 @@ class MainWindow(QMainWindow):
         self.time_btn.setToolTip("Startzeit oder bisher angefallene Zeit der laufenden Aufgabe anpassen")
         self.time_btn.clicked.connect(self._edit_running)
         row.addWidget(self.time_btn)
+        self.back_btn = QPushButton("↶ Zurück", objectName="soft")
+        self.back_btn.setToolTip("Verklickt? Die laufende Aufgabe wird verworfen, die vorherige läuft weiter")
+        self.back_btn.clicked.connect(self._revert_task)
+        row.addWidget(self.back_btn)
         # Nichts darf springen, wenn Knöpfe ein-/ausgeblendet oder umbeschriftet werden (Pause ↔ Weiter): ausgeblendete
-        # Knöpfe behalten ihren Platz, der Schalter „Heute nicht abziehen / Wieder abziehen“ hat die Breite des längeren Textes
-        for b in (self.pause_run_btn, self.switch_btn, self.time_btn):
+        # Knöpfe behalten ihren Platz, der Schalter „Keine Mittagspause / Mittagspause“ hat die Breite des längeren Textes
+        for b in (self.pause_btn, self.add_pause_btn, self.pause_run_btn, self.switch_btn, self.time_btn, self.back_btn):
             policy = b.sizePolicy()
             policy.setRetainSizeWhenHidden(True)
             b.setSizePolicy(policy)
-        metrics = QFontMetrics(self.pause_btn.font())
-        self.pause_btn.setFixedWidth(max(metrics.horizontalAdvance(t) for t in ("Heute nicht abziehen", "Wieder abziehen")) + 36)
+        widths = []   # Breite inklusive Rand der Knopf-Vorlage („soft“), nicht nur der Schrift
+        for t in ("Keine Mittagspause", "Mittagspause"):
+            self.pause_btn.setText(t)
+            widths.append(self.pause_btn.sizeHint().width())
+        self.pause_btn.setFixedWidth(max(widths) + 12)
+        self.pause_btn.setText("")
         self.lunch_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         left.addLayout(row)
         # Verknüpfung mit DevOps: sichtbar und unabhängig von der Notiz (die bleibt frei für die Beschreibung)
@@ -423,6 +436,12 @@ class MainWindow(QMainWindow):
         self.day_label.setStyleSheet("font-size:16px;font-weight:600")
         self.total_label = QLabel()
         self.total_label.setStyleSheet("font-size:15px")
+        # Nichts darf springen, wenn der Zusatz „(Pause −0:30 abgezogen)“ erscheint oder verschwindet: Breite für den
+        # längsten Text reservieren
+        self.total_label.setText("Arbeitszeit (ohne Pausen): <b>00:00 h</b> <span>(Pause −0:00 abgezogen)</span>  /  Soll 00:00 h")
+        self.total_label.setMinimumWidth(self.total_label.sizeHint().width() + 24)
+        self.total_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.total_label.setText("")
         self.progress = QProgressBar()
         self.progress.setMaximumWidth(220)
         self.progress.setTextVisible(True)
@@ -1147,19 +1166,54 @@ class MainWindow(QMainWindow):
             minutes = int(self.svc.pause_length.total_seconds() // 60)
             choice = ask_lunch_pause(self, minutes, f"{self.svc.pause_start:%H:%M}")
             if choice == "start":
-                self._guard(self.svc.start_pause, minutes)
+                self._guard(self.svc.start_pause, minutes, True)
             elif choice == "skip":
                 self._guard(self.svc.remove_pause, now.date())
-            elif choice == "deduct":
-                self._lunch_dismissed = now.date()
+            elif choice == "insert":
+                picked = ask_pause_times(self, self.svc.pause_start, minutes)
+                if picked is None:
+                    self._lunch_snooze = now + timedelta(minutes=10)
+                else:   # Aufgabe trennen, Pause eintragen, Aufgabe läuft weiter
+                    self._lunch_dismissed = now.date()
+                    self._guard(self.svc.add_lunch_pause, now.date(), *picked)
             else:
                 self._lunch_snooze = now + timedelta(minutes=10)
         finally:
             self._lunch_asking = False
 
+    def _revert_task(self) -> None:
+        run, prev = self.svc.current(), self.svc.previous_task()
+        if run is None or prev is None:
+            return
+        text = (f"„{self.svc.entry_label(run)}“ (seit {fmt_time(run.start)}) verwerfen und stattdessen "
+                f"„{self.svc.entry_label(prev)}“ (seit {fmt_time(prev.start)}) weiterlaufen lassen?")
+        if QMessageBox.question(self, "Zurück zur vorherigen Aufgabe", text) == QMessageBox.Yes:
+            self._guard(self.svc.revert_to_previous)
+
+    def _add_normal_pause(self) -> None:
+        """Normale Pause (kein Mittagsabzug) nachtragen: Vorschlag 15 min bis jetzt (an anderen Tagen zur Mittagszeit)."""
+        now = self.svc.now()
+        if self.day == now.date():
+            begin = max(now - timedelta(minutes=15), datetime.combine(self.day, time(0, 0)))
+            start = time(begin.hour, begin.minute)
+        else:
+            start = self.svc.pause_start
+        picked = ask_pause_times(self, start, 15)
+        if picked is not None:
+            self._guard(self.svc.add_pause, self.day, *picked)
+
     def _toggle_pause(self) -> None:
         if self.svc.pause_disabled(self.day):
-            self._guard(self.svc.restore_pause, self.day)
+            # wieder einschalten: die Pause wird dabei auch als Eintrag angelegt (Beginn/Länge wählbar); liegt die
+            # Mittagszeit noch in der Zukunft, wird nur der Abzug wieder eingeschaltet
+            now = self.svc.now()
+            if self.day == now.date() and datetime.combine(self.day, self.svc.pause_start) >= now:
+                self._guard(self.svc.restore_pause, self.day)
+                return
+            minutes = int(self.svc.pause_length.total_seconds() // 60)
+            picked = ask_pause_times(self, self.svc.pause_start, minutes)
+            if picked is not None:
+                self._guard(self.svc.add_lunch_pause, self.day, *picked)
         else:
             self._guard(self.svc.remove_pause, self.day)
 
@@ -1240,7 +1294,7 @@ class MainWindow(QMainWindow):
             lunch = self.svc.lunch_overlap(e, windows[e.start.date()], now)
             vals = [fmt_time(e.start), fmt_time(e.end), fmt_duration(e.duration(now) - lunch),
                     "✓" if e.billable and e.kind != PAUSE else "",
-                    "Pause" if e.kind == PAUSE else (self.svc.project_display(e.project_id) or "–"),
+                    self.svc.entry_label(e) if e.kind == PAUSE else (self.svc.project_display(e.project_id) or "–"),
                     self.svc.activity_name(e.activity_id), (f"#{e.devops_id}" + (f" → Task #{e.devops_task_id}" if e.devops_task_id else "")) if e.devops_id else "",
                     note_one_line(e.note)]
             for c, v in enumerate(vals):
@@ -1271,8 +1325,13 @@ class MainWindow(QMainWindow):
                 self.table.selectionModel().select(self.table.model().index(r, 0),
                                                    QItemSelectionModel.Select | QItemSelectionModel.Rows)
         self._sync_checks()
-        self.pause_btn.setText("Wieder abziehen" if self.svc.pause_disabled(self.day)
-                               else "Heute nicht abziehen")
+        lunch_on = self.svc.lunch_mode != "off" and self.svc.pause_length.total_seconds() > 0
+        off_today = self.svc.pause_disabled(self.day)
+        self.pause_btn.setText("Mittagspause" if off_today else "Keine Mittagspause")
+        self.pause_btn.setToolTip("Mittagspause für diesen Tag wieder abziehen" if off_today else
+                                  "Für diesen Tag keine Mittagspause abziehen")
+        self.pause_btn.setVisible(lunch_on)
+        self.add_pause_btn.setVisible(True)
         self._show_lunch_state()
 
         run = self.svc.current()
@@ -1286,7 +1345,7 @@ class MainWindow(QMainWindow):
             self.billable_cb.setEnabled(False)
             self.billable_cb.setChecked(False)
         elif run.kind == PAUSE:
-            self.task_label.setText("Pause")
+            self.task_label.setText(self.svc.entry_label(run))
             self.since_label.setText(f"seit {fmt_time(run.start)}"
                                      + (f" – endet um {fmt_time(run.auto_until)}" if run.auto_until else "")
                                      + (" – danach läuft die vorherige Aufgabe weiter" if run.resume else ""))
@@ -1317,6 +1376,7 @@ class MainWindow(QMainWindow):
             self.devops_label.setText(f"#{linked} {self.svc.devops_title(linked)}".strip())
         self.stop_btn.setVisible(run is not None)
         self.time_btn.setVisible(run is not None)
+        self.back_btn.setVisible(self.svc.previous_task() is not None)
         paused = run is not None and run.kind == PAUSE
         self.pause_run_btn.setVisible(run is not None and not paused)   # in der Pause übernimmt „Weiter“ (statt „Neu“)
         can_switch = run is not None and run.kind != PAUSE
@@ -1339,15 +1399,18 @@ class MainWindow(QMainWindow):
         start = svc.pause_start
         end = (datetime.combine(self.day, start) + svc.pause_length).time()
         window = f"{start:%H:%M}–{end:%H:%M}"
-        if svc.pause_length.total_seconds() <= 0:
-            text = "Mittagspause: nicht eingestellt (0 min)"
+        # zweizeilig (immer, damit nichts springt): oben die Pausenzeit, darunter der Zustand
+        if svc.lunch_mode == "off":
+            text = "Mittagspause<br><b>aus</b> (kein Pausenabzug)"
+        elif svc.pause_length.total_seconds() <= 0:
+            text = "Mittagspause<br>nicht eingestellt (0 min)"
         elif state == "off":
-            text = f"Mittagspause {window}: <b>aus</b> (für diesen Tag nicht abgezogen)"
+            text = f"Mittagspause {window}<br><b>aus</b> (heute nicht abgezogen)"
         elif state == "paused":
-            text = f"Mittagspause {window}: <b>als Pause eingetragen</b>"
+            text = f"Mittagspause {window}<br><b style='color:#2e7d32'>als Pause eingetragen</b>"
         else:
-            how = "Nachfrage zur Mittagszeit" if svc.lunch_mode == "ask" else "wird automatisch abgezogen"
-            text = f"Mittagspause {window}: <b>aktiv</b> – {how}"
+            how = "fragt zur Mittagszeit nach"
+            text = f"Mittagspause {window}<br><b>wird abgezogen</b> – {how}"
         self.lunch_label.setText(text)
 
     def _tile_buttons(self):

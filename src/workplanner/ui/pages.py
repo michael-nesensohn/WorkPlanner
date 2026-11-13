@@ -95,10 +95,11 @@ class MasterDataPage(QWidget):
         self.pause_min.setRange(0, 240)
         self.pause_min.setSuffix(" min  (0 = keine Pause)")
         self.lunch_mode = QComboBox()
-        self.lunch_mode.addItem("Nur abziehen (automatisch)", "deduct")
         self.lunch_mode.addItem("Nachfragen und Pause als Eintrag anlegen", "ask")
+        self.lunch_mode.addItem("Kein Pausenabzug", "off")
         self.lunch_mode.setToolTip("Nachfragen: zur Mittagspause erscheint „Pause starten?“. Die Pause wird dann als "
-                                   "Eintrag angelegt, die Aufgabe läuft danach weiter.")
+                                   "Eintrag angelegt, die Aufgabe läuft danach weiter (bis dahin wird sie abgezogen). Kein Pausenabzug: die "
+                                   "Mittagspause ist ganz abgeschaltet.")
         self.target = QTimeEdit()
         self.target.setDisplayFormat("HH:mm")
         self.default_project = QComboBox()
@@ -649,7 +650,7 @@ class WeekPage(QWidget):
             for e in entries:
                 r = add_row()
                 pause = e["kind"] == "pause"
-                project = "Pause" if pause else (f"{e['project_number']}  {e['project']}" if e["project_number"]
+                project = e["project"] if pause else (f"{e['project_number']}  {e['project']}" if e["project_number"]
                                                  else e["project"])
                 devops = f"#{e['devops_id']}" if e["devops_id"] else ""
                 vals = [f"{e['start']:%H:%M}", "läuft" if e["running"] else f"{e['end']:%H:%M}",

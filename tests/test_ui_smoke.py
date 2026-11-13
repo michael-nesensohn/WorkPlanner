@@ -672,7 +672,7 @@ def test_outlook_dialog_offers_running_meeting_and_interrupts_task(qapp):
     assert notes[-1] == ("Waage lesen", "11:00", None) and svc.current().note == "Waage lesen"
 
 
-def test_day_view_shows_net_time_and_deduction_note(qapp):
+def test_day_view_shows_net_time_and_deduction_note(qapp, monkeypatch):
     from datetime import timedelta
     db = Database()
     seed(db)
@@ -688,15 +688,19 @@ def test_day_view_shows_net_time_and_deduction_note(qapp):
     assert w.table.item(0, 2).text() == "4:30"                       # 5 h brutto, 30 min Mittagspause abgezogen
     assert "Mittagspause" in w.table.item(0, 2).toolTip() and "5:00 brutto" in w.table.item(0, 2).toolTip()
     assert "4:30 h" in w.total_label.text() and "Pause −0:30 abgezogen" in w.total_label.text()
-    assert w.pause_btn.text() == "Heute nicht abziehen"
+    assert w.pause_btn.text() == "Keine Mittagspause"
     w.pause_btn.click()
-    assert w.pause_btn.text() == "Wieder abziehen"
+    assert w.pause_btn.text() == "Mittagspause"
     assert w.table.item(0, 2).text() == "5:00" and "abgezogen" not in w.total_label.text()
-    w.pause_btn.click()
-    assert w.table.item(0, 2).text() == "4:30"
+    from datetime import time as dtime
+    monkeypatch.setattr("workplanner.ui.main_window.ask_pause_times", lambda *a: (dtime(12, 0), 30))
+    w.pause_btn.click()                                              # „Mittagspause“: trägt die Pause auch als Eintrag ein
+    assert [e.kind for e in svc.day_entries(svc.now().date())] == ["work", "pause", "work"]
+    assert w.table.rowCount() == 3 and any("Mittagspause" in (w.table.item(1, c).text() if w.table.item(1, c) else "") for c in range(w.table.columnCount()))
+    assert w.pause_btn.text() == "Keine Mittagspause"
     clock.set(13, 5)
-    w._update_live()                                                 # laufende Zeile zählt live netto weiter
-    assert w.table.item(0, 2).text() == "4:35"
+    w._update_live()
+    assert "4:35 h" in w.total_label.text()                          # 8–12 + 12:30–13:05
 
 
 def test_target_end_label_under_the_target(qapp):
@@ -1029,3 +1033,22 @@ def test_entry_dialog_project_list_is_sorted_and_defaults_to_general(qapp):
     names = [dlg.project.itemText(i) for i in range(dlg.project.count())]
     assert "–" not in names and names == sorted(names, key=str.casefold)
     assert dlg.project.currentData() == svc.default_project_id() and dlg.project.currentText() == "Allgemein"
+
+
+def test_lunch_dialog_deduct_inserts_pause_and_task_keeps_running(qapp, monkeypatch):
+    db = Database()
+    seed(db)
+    clock = Clock(8, 0)
+    svc = TimeService(db, clock)
+    w = MainWindow(svc)
+    w._pick_project(svc.projects()[0]["id"])
+    clock.set(12, 10)
+    monkeypatch.setattr("workplanner.ui.main_window.ask_lunch_pause", lambda *a: "insert")
+    from datetime import time as dtime
+    monkeypatch.setattr("workplanner.ui.main_window.ask_pause_times", lambda *a: (dtime(12, 0), 10))
+    w._check_lunch_prompt()
+    entries = svc.day_entries(svc.now().date())
+    assert [e.kind for e in entries] == ["work", "pause", "work"]
+    assert (entries[1].start.strftime("%H:%M"), entries[1].end.strftime("%H:%M")) == ("12:00", "12:10")   # gewählte Länge
+    assert entries[2].running and svc.current().project_id == entries[0].project_id
+    assert not svc.lunch_prompt_due()

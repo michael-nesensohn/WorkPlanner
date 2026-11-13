@@ -419,9 +419,11 @@ def test_lunch_prompt_only_in_ask_mode_while_a_task_runs_and_without_a_pause(env
     clock.set(11, 0)
     svc.start_task(a, act, "Arbeit")
     clock.set(12, 5)
-    assert not svc.lunch_prompt_due()                     # Standard: nur abziehen
-    svc.set_lunch_mode("ask")
-    assert svc.lunch_prompt_due()
+    assert svc.lunch_mode == "ask" and svc.lunch_prompt_due()   # Standard: nachfragen
+    svc.set_lunch_mode("off")
+    assert not svc.lunch_prompt_due()                     # Kein Pausenabzug: keine Nachfrage
+    svc.db.set_setting("lunch_mode", "deduct")            # alter Wert „nur abziehen“ gilt als „nachfragen“
+    assert svc.lunch_mode == "ask" and svc.lunch_prompt_due()
     clock.set(11, 59)
     assert not svc.lunch_prompt_due()
     clock.set(12, 5)
@@ -458,3 +460,128 @@ def test_moving_an_entry_into_the_middle_of_a_task_splits_that_task(env):
         ("09:30", "11:46", "work"), ("11:46", "12:15", "pause"), ("12:15", "14:32", "work"),
         ("14:32", "14:34", "work"), ("14:46", None, "work")]
     assert out[0].note == out[2].note == "Elektrik"
+
+
+def test_lunch_mode_off_means_no_deduction_at_all(env):
+    svc, clock, a, b, act = env
+    clock.set(8)
+    svc.start_task(a, act, "Arbeit")
+    clock.set(13, 0)
+    assert svc.work_total(svc.day_entries(DAY)) == timedelta(hours=4, minutes=30)
+    svc.set_lunch_mode("off")
+    assert svc.lunch_mode == "off" and svc.lunch_state(DAY) == "off" and svc.lunch_window(DAY) is None
+    assert not svc.lunch_prompt_due()
+    assert svc.work_total(svc.day_entries(DAY)) == timedelta(hours=5)
+
+
+def test_add_lunch_pause_afterwards_splits_the_task(env):
+    svc, clock, a, b, act = env
+    svc.set_lunch_mode("ask")
+    clock.set(8)
+    svc.start_task(a, act, "Arbeit")
+    clock.set(13, 0)
+    svc.add_lunch_pause(DAY)
+    got = svc.day_entries(DAY)
+    assert [(e.start.strftime("%H:%M"), e.end and e.end.strftime("%H:%M"), e.kind) for e in got] == [
+        ("08:00", "12:00", "work"), ("12:00", "12:30", "pause"), ("12:30", None, "work")]
+    assert got[0].note == got[2].note == "Arbeit" and svc.current().note == "Arbeit"
+    assert svc.lunch_state(DAY) == "paused"
+    assert svc.work_total(svc.day_entries(DAY)) == timedelta(hours=4, minutes=30)
+    with pytest.raises(TimelineError):
+        svc.add_lunch_pause(DAY)               # es gibt schon eine Pause
+
+
+def test_add_lunch_pause_not_before_lunch_time(env):
+    svc, clock, a, b, act = env
+    svc.set_lunch_mode("ask")
+    clock.set(8)
+    svc.start_task(a, act, "Arbeit")
+    clock.set(11, 0)
+    with pytest.raises(TimelineError):
+        svc.add_lunch_pause(DAY)
+
+
+def test_add_lunch_pause_with_own_start_and_length(env):
+    svc, clock, a, b, act = env
+    svc.set_lunch_mode("ask")
+    clock.set(8)
+    svc.start_task(a, act, "Arbeit")
+    clock.set(13, 0)
+    svc.add_lunch_pause(DAY, time(12, 15), 45)
+    got = svc.day_entries(DAY)
+    assert [(e.start.strftime("%H:%M"), e.end and e.end.strftime("%H:%M"), e.kind) for e in got] == [
+        ("08:00", "12:15", "work"), ("12:15", "13:00", "pause"), ("13:00", None, "work")]
+
+
+def test_add_lunch_pause_ending_in_the_future_runs_and_resumes_the_task(env):
+    svc, clock, a, b, act = env
+    svc.set_lunch_mode("ask")
+    clock.set(8)
+    svc.start_task(a, act, "Arbeit")
+    clock.set(12, 10)
+    svc.add_lunch_pause(DAY, time(12, 0), 30)
+    got = svc.day_entries(DAY)
+    assert [(e.start.strftime("%H:%M"), e.end and e.end.strftime("%H:%M"), e.kind) for e in got] == [
+        ("08:00", "12:00", "work"), ("12:00", None, "pause")]
+    assert svc.current_pause() is not None and svc.current_pause().auto_until.strftime("%H:%M") == "12:30"
+    clock.set(12, 31)
+    svc.tick()
+    got = svc.day_entries(DAY)
+    assert [(e.start.strftime("%H:%M"), e.end and e.end.strftime("%H:%M"), e.kind) for e in got] == [
+        ("08:00", "12:00", "work"), ("12:00", "12:30", "pause"), ("12:30", None, "work")]
+    assert svc.current().note == "Arbeit"
+    assert svc.work_total(svc.day_entries(DAY)) == timedelta(hours=4, minutes=1)
+
+
+def test_normal_pause_is_named_pause_and_lunch_pause_mittagspause(env):
+    svc, clock, a, b, act = env
+    svc.set_lunch_mode("ask")
+    clock.set(8)
+    svc.start_task(a, act, "Arbeit")
+    clock.set(10, 30)
+    svc.add_pause(DAY, time(10, 0), 15)                   # normale Pause nachgetragen
+    clock.set(13, 0)
+    svc.add_lunch_pause(DAY, time(12, 0), 30)
+    names = [svc.entry_label(e) for e in svc.day_entries(DAY) if e.kind == PAUSE]
+    assert names == ["Pause", "Mittagspause"]
+    assert [r["project"] for r in svc.report_rows(DAY, DAY) if r["kind"] == "pause"] == ["Pause", "Mittagspause"]
+
+
+def test_no_lunch_break_keeps_normal_pauses(env):
+    svc, clock, a, b, act = env
+    svc.set_lunch_mode("ask")
+    clock.set(8)
+    svc.start_task(a, act, "Arbeit")
+    clock.set(15, 0)
+    svc.add_pause(DAY, time(10, 0), 15)
+    svc.add_lunch_pause(DAY, time(12, 0), 30)
+    svc.remove_pause(DAY)                                  # „Keine Mittagspause“
+    got = [(e.start.strftime("%H:%M"), e.kind) for e in svc.day_entries(DAY)]
+    assert got == [("08:00", "work"), ("10:00", "pause"), ("10:15", "work")] and svc.pause_disabled(DAY)
+
+
+def test_deleting_a_normal_pause_keeps_lunch_deduction_and_other_entries(env):
+    svc, clock, a, b, act = env
+    svc.set_lunch_mode("ask")
+    clock.set(8)
+    svc.start_task(a, act, "Arbeit")
+    clock.set(15, 0)
+    svc.add_pause(DAY, time(10, 0), 15)
+    svc.delete_entry(next(e.id for e in svc.day_entries(DAY) if e.kind == PAUSE))
+    assert [e.kind for e in svc.day_entries(DAY)] == ["work"] and not svc.pause_disabled(DAY)
+
+
+def test_revert_to_previous_task_continues_it(env):
+    svc, clock, a, b, act = env
+    clock.set(8)
+    svc.start_task(a, act, "Erste")
+    clock.set(9, 30)
+    svc.start_task(b, act, "Verklickt")
+    clock.set(9, 35)
+    assert svc.previous_task().note == "Erste"
+    svc.revert_to_previous()
+    got = svc.day_entries(DAY)
+    assert len(got) == 1 and got[0].note == "Erste" and got[0].running and got[0].start.strftime("%H:%M") == "08:00"
+    assert svc.previous_task() is None
+    with pytest.raises(TimelineError):
+        svc.revert_to_previous()                            # nichts mehr davor

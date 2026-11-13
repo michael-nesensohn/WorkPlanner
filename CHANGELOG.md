@@ -3,6 +3,26 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.18
+- Mittagspause: neue Einstellung „Kein Pausenabzug“ (Mittagspause ganz abgeschaltet). „Nur abziehen“ gibt es nicht
+  mehr; wer es eingestellt hatte, bekommt jetzt „Nachfragen“ (bis zur Antwort wird die Pause abgezogen).
+- Im Modus „Nachfragen“ gibt es **Pause nachtragen**: trägt die Mittagspause nachträglich ein (falls die Nachfrage
+  verpasst wurde); die Aufgabe, die dort lief, wird aufgetrennt und läuft danach weiter.
+- Der Knopf „Heute nicht abziehen / Wieder abziehen“ heißt jetzt „Keine Mittagspause“ / „Mittagspause“. Der Status
+  daneben ist zweizeilig und wird nicht mehr abgeschnitten.
+- „Pause starten?“: „Pause einfügen …“ trennt die Aufgabe, trägt die Pause ein (Beginn und Länge änderbar) und lässt
+  die Aufgabe weiterlaufen. Dasselbe gilt für „Pause nachtragen“.
+- Der Knopf „Mittagspause“ (wenn der Abzug für den Tag aus war) trägt die Pause auch als Eintrag ein (Beginn und Länge
+  wählbar). Die Mittagspause heißt in Listen und Anzeige „Mittagspause“. Eine Pause, die erst später endet, läuft weiter
+  und setzt die Aufgabe selbst fort.
+- „Pause nachtragen“ ist für eine normale Pause (Eintrag „Pause“, Vorschlag 15 min bis jetzt, Beginn und Länge
+  wählbar); die Mittagspause (Dialog zur Mittagszeit, Knopf „Mittagspause“) heißt „Mittagspause“.
+- „Keine Mittagspause“ entfernt nur Einträge „Mittagspause“; normale Pausen bleiben. Löscht man eine normale Pause,
+  bleibt der Mittagsabzug unberührt und die Aufgabe läuft durch.
+- Neuer Knopf **↶ Zurück** (bei Verklicken): die laufende Aufgabe wird verworfen, die vorherige läuft weiter und
+  bekommt die Zeit dazwischen. Erscheint nur, wenn davor eine Aufgabe lief.
+- Die Anzeige „Arbeitszeit …“ springt nicht mehr, wenn der Zusatz „(Pause … abgezogen)“ erscheint oder verschwindet.
+
 ## 0.1.17
 - In Excel-Stundenzettel eintragen: Steht an einer Stelle schon ein anderer Wert, wird nachgefragt, wer Vorrang hat
   (WorkPlanner ersetzt, oder Excel behält seinen Wert); die Wahl lässt sich im Dialog auch fest einstellen.

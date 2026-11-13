@@ -312,7 +312,7 @@ def resume_after_meeting(entries: list[Entry], now: datetime) -> list[Entry]:
     return out
 
 
-def start_pause(entries: list[Entry], now: datetime, minutes: int | None = None) -> list[Entry]:
+def start_pause(entries: list[Entry], now: datetime, minutes: int | None = None, lunch: bool = False) -> list[Entry]:
     """Beendet die laufende Aufgabe und startet eine Pause als sichtbaren Eintrag. Die Aufgabe wird nach der Pause
     fortgesetzt (`end_pause`; mit `minutes` endet die Pause von selbst, siehe `resume_after_meeting`)."""
     out = list(entries)
@@ -329,7 +329,25 @@ def start_pause(entries: list[Entry], now: datetime, minutes: int | None = None)
         else:
             out[-1] = replace(last, end=now, auto_until=None, resume="")
     until = now + timedelta(minutes=minutes) if minutes else None
-    out.append(Entry(now, None, PAUSE, auto_until=until, resume=resume))
+    out.append(Entry(now, None, PAUSE, auto_until=until, resume=resume, auto_pause=lunch))
+    return _checked(out, now)
+
+
+def pause_until(entries: list[Entry], start: datetime, end: datetime, now: datetime, lunch: bool = False) -> list[Entry]:
+    """Fügt eine Pause ein, die schon läuft (`start` liegt vor „jetzt“) und erst in der Zukunft endet (`end`): die
+    Aufgabe wird bei `start` getrennt, die Pause läuft bis `end` und setzt dann die Aufgabe selbst fort."""
+    if not start < now < end:
+        raise TimelineError("Die Pause muss schon begonnen haben und erst später enden.")
+    out = place(entries, Entry(start, now, PAUSE, auto_pause=lunch), now)
+    idx = max(i for i, e in enumerate(out) if e.kind == PAUSE and e.start == start)
+    resume = ""
+    rest = out[idx + 1:]
+    if rest and rest[-1].running and rest[-1].kind == WORK:
+        last = rest[-1]
+        resume = json.dumps({"project_id": last.project_id, "activity_id": last.activity_id, "note": last.note,
+                             "billable": last.billable, "devops_id": last.devops_id})
+        out = out[:idx + 1]
+    out[idx] = replace(out[idx], end=None, auto_until=end, resume=resume)
     return _checked(out, now)
 
 
@@ -344,6 +362,16 @@ def end_pause(entries: list[Entry], now: datetime) -> list[Entry]:
     if m.resume:
         out.append(Entry(now, None, WORK, **json.loads(m.resume)))
     return _checked(out, now)
+
+
+def revert_to_previous(entries: list[Entry], now: datetime) -> list[Entry]:
+    """Verklickt: Die laufende Aufgabe entfällt, die davor beendete läuft weiter (die Zeit dazwischen gehört ihr)."""
+    if len(entries) < 2 or not entries[-1].running or entries[-1].kind != WORK:
+        raise TimelineError("Es läuft keine Aufgabe, die zurückgenommen werden kann.")
+    prev = entries[-2]
+    if prev.kind != WORK or prev.end is None:
+        raise TimelineError("Davor lief keine Aufgabe, die weiterlaufen kann.")
+    return _checked(entries[:-2] + [replace(prev, end=None, auto_until=None)], now)
 
 
 def stop(entries: list[Entry], now: datetime) -> list[Entry]:
