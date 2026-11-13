@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QCalendarWidget, QCheckBox, QComboBox, QDialog, Q
 
 from ..service import TimeService
 from .feature_panel import group_items
-from ..timeline import PAUSE, PUSH, SHORTEN, TimelineError, Entry, changed_times, removed_entries
+from ..timeline import PAUSE, PUSH, SHORTEN, SPLIT, TimelineError, Entry, changed_times, removed_entries
 
 
 def preview_html(svc: TimeService, old: list[Entry], new: list[Entry], own_id: int | None) -> str:
@@ -93,10 +93,12 @@ def ask_pause_times(parent, start: time, minutes: int) -> tuple[time, int] | Non
 
 def ask_overlap(parent, svc: TimeService, entry_id: int, changes: dict) -> str | None:
     """Reicht der neue Start in andere Einträge hinein, fragt der Dialog, was mit ihnen geschehen soll.
-    Gibt PUSH/SHORTEN zurück, `None` bei Abbruch. Es entfällt nie ein Eintrag."""
+    Gibt PUSH/SHORTEN/SPLIT zurück, `None` bei Abbruch. Es entfällt nie ein Eintrag."""
     covered = svc.overlapped_entries(entry_id, changes)
     if not covered:
         return PUSH
+    if all(e.kind == PAUSE for e in covered):   # Pausen schneiden eine Aufgabe immer: ohne Rückfrage aufteilen
+        return SPLIT
     box = QMessageBox(parent)
     box.setIcon(QMessageBox.Question)
     box.setWindowTitle("Zeiten überschneiden sich")
@@ -106,12 +108,16 @@ def ask_overlap(parent, svc: TimeService, entry_id: int, changes: dict) -> str |
                 "<br><br>Was soll mit ihnen geschehen?")
     box.setInformativeText("Behalten: Sie behalten ihre Dauer und rücken zeitlich nach hinten. "
                            "(Bei einer laufenden Aufgabe: Sie stoppt vor ihnen und läuft danach weiter.)\n\n"
-                           "Kürzen: Sie werden kürzer und enden dort, wo dieser Eintrag beginnt.")
+                           "Kürzen: Sie werden kürzer und enden dort, wo dieser Eintrag beginnt.\n\n"
+                           "Aufteilen: Sie bleiben, wo sie sind (z. B. eine Pause); dieser Eintrag teilt sich um sie "
+                           "herum auf: Aufgabe – Pause – Aufgabe.")
     keep = box.addButton("Behalten", QMessageBox.AcceptRole)
     cut = box.addButton("Kürzen", QMessageBox.AcceptRole)
+    split = box.addButton("Aufteilen (Pause bleibt)", QMessageBox.AcceptRole)
     box.addButton("Abbrechen", QMessageBox.RejectRole)
     box.exec()
-    return PUSH if box.clickedButton() is keep else SHORTEN if box.clickedButton() is cut else None
+    clicked = box.clickedButton()
+    return PUSH if clicked is keep else SHORTEN if clicked is cut else SPLIT if clicked is split else None
 
 
 class CalendarDialog(QDialog):

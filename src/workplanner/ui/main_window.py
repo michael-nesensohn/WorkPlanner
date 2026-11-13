@@ -1124,7 +1124,8 @@ class MainWindow(QMainWindow):
         if not chosen:
             return
         if len(chosen) == 1:
-            text = "Pause löschen?" if chosen[0].kind == PAUSE else \
+            text = ("Pause löschen? Die Aufgabe davor läuft durch bis zur nächsten; war es dieselbe Aufgabe, wird sie "
+                    "wieder zusammengefügt.") if chosen[0].kind == PAUSE else \
                 "Eintrag löschen? Alle Folgeeinträge rücken entsprechend nach vorn."
         else:
             text = (f"{len(chosen)} markierte Einträge löschen? "

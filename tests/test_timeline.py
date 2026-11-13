@@ -254,3 +254,11 @@ def test_pause_without_a_running_task_just_pauses_and_ends():
     assert times(paused) == [("12:00", None)]
     assert times(tl.end_pause(paused, t(12, 20))) == [("12:00", "12:20")]
     assert tl.start_pause(paused, t(12, 5)) == paused          # schon Pause: nichts ändert sich
+
+
+def test_earlier_start_split_keeps_covered_entries_and_splits_around_them():
+    day = [e(8, 0, 9, 0, id=1), Entry(t(11, 40), t(12, 10), PAUSE, id=2), e(12, 52, 13, 30, id=3), e(13, 30, 16, 0, id=4)]
+    out = tl.set_start(day, 2, t(9, 6), NOW, overlap=tl.SPLIT)
+    assert times(out) == [("08:00", "09:00"), ("09:06", "11:40"), ("11:40", "12:10"), ("12:10", "13:30"),
+                          ("13:30", "16:00")]
+    assert out[1].id == 3 and out[3].id is None and out[2].kind == PAUSE      # Pause bleibt; nichts rückt nach hinten

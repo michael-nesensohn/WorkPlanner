@@ -3,6 +3,12 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.19
+- Eintrag bearbeiten: Überdeckt ein früherer Start andere Einträge (z. B. eine Mittagspause), gibt es in der Rückfrage
+  neu **Aufteilen (Pause bleibt)**: die Pause bleibt, wo sie ist, der Eintrag teilt sich um sie herum auf (Aufgabe –
+  Pause – Aufgabe) und nichts rückt nach hinten.
+  Überdeckt der Start nur Pausen, wird ohne Rückfrage so aufgeteilt (eine Pause schneidet eine Aufgabe immer).
+
 ## 0.1.18
 - Mittagspause: neue Einstellung „Kein Pausenabzug“ (Mittagspause ganz abgeschaltet). „Nur abziehen“ gibt es nicht
   mehr; wer es eingestellt hatte, bekommt jetzt „Nachfragen“ (bis zur Antwort wird die Pause abgezogen).

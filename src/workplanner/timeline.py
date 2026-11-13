@@ -114,6 +114,7 @@ def set_duration(entries: list[Entry], idx: int, duration: timedelta, now: datet
 
 PUSH = "push"        # die überdeckten Einträge behalten ihre Dauer
 SHORTEN = "shorten"  # die überdeckten Einträge werden gekürzt (ihre Dauer schrumpft anteilig)
+SPLIT = "split"      # die überdeckten Einträge bleiben, wo sie sind; der Eintrag teilt sich um sie herum
 
 
 def earlier_overlap(entries: list[Entry], idx: int, new_start: datetime) -> list[int]:
@@ -135,6 +136,8 @@ def set_start(entries: list[Entry], idx: int, new_start: datetime, now: datetime
         abgeschlossenen Eintrag folgen sie hinter ihm (spätere Einträge rücken nach hinten).
       - SHORTEN: sie werden (zusammen mit dem angeschnittenen Vorgänger) anteilig gekürzt und enden spätestens
         am neuen Start.
+      - SPLIT: sie bleiben, wo sie sind (z. B. eine Pause); der Eintrag wird um sie herum aufgeteilt (Aufgabe – Pause –
+        Aufgabe) und endet wie bisher.
     `check=False`: Zwischenschritt, die Zeitleiste wird erst nach dem folgenden Schritt geprüft (sonst scheitert z. B.
     „früherer Start und früheres Ende“ an einem Zwischenstand, der kurz in der Zukunft läge).
     """
@@ -171,6 +174,15 @@ def set_start(entries: list[Entry], idx: int, new_start: datetime, now: datetime
             cursor = end
         return fin(before + shortened + [replace(e, start=new_start)] + after)
     before = before + ([replace(cut, end=new_start)] if cut else [])
+    if overlap == SPLIT and not e.running:
+        out, cursor = list(before), new_start
+        for c in covered:
+            if c.start > cursor:
+                out.append(replace(e, start=cursor, end=c.start, id=e.id if cursor == new_start else None))
+            out.append(c)
+            cursor = max(cursor, c.end)
+        out.append(replace(e, start=cursor, id=e.id if cursor == new_start else None))
+        return fin(out + after)
     if e.running:                                           # stoppt vor den Einträgen, läuft danach weiter
         out, cursor = list(before), new_start
         for c in covered:

@@ -585,3 +585,42 @@ def test_revert_to_previous_task_continues_it(env):
     assert svc.previous_task() is None
     with pytest.raises(TimelineError):
         svc.revert_to_previous()                            # nichts mehr davor
+
+
+def test_edit_start_over_a_pause_splits_with_the_split_mode(env):
+    svc, clock, a, b, act = env
+    clock.set(16, 5)
+    d = lambda h, m=0: datetime(2026, 11, 2, h, m)  # noqa: E731
+    svc.db.save_day(DAY, [Entry(d(8), d(9), project_id=a, note="A"), Entry(d(11, 40), d(12, 10), kind=PAUSE),
+                          Entry(d(12, 52), d(13, 30), project_id=a, note="B"),
+                          Entry(d(13, 30), None, project_id=b, note="läuft")])
+    target = svc.day_entries(DAY)[2]
+    assert [x.kind for x in svc.overlapped_entries(target.id, {"start": d(9, 6)})] == [PAUSE]
+    svc.edit_entry(target.id, {"start": d(9, 6)}, "split")
+    assert [(e.start.strftime("%H:%M"), e.kind) for e in svc.day_entries(DAY)] == [
+        ("08:00", "work"), ("09:06", "work"), ("11:40", "pause"), ("12:10", "work"), ("13:30", "work")]
+
+
+def test_deleting_a_pause_joins_the_split_task_again(env):
+    svc, clock, a, b, act = env
+    svc.set_lunch_mode("ask")
+    clock.set(8)
+    svc.start_task(a, act, "Arbeit")
+    first_id = svc.day_entries(DAY)[0].id
+    clock.set(14, 0)
+    svc.add_pause(DAY, time(12, 0), 30)
+    assert len(svc.day_entries(DAY)) == 3
+    svc.delete_entry(next(e.id for e in svc.day_entries(DAY) if e.kind == PAUSE))
+    got = svc.day_entries(DAY)
+    assert len(got) == 1 and got[0].id == first_id and got[0].running and got[0].start.strftime("%H:%M") == "08:00"
+
+
+def test_deleting_a_pause_between_different_tasks_closes_the_gap(env):
+    svc, clock, a, b, act = env
+    clock.set(15, 0)
+    d = lambda h, m=0: datetime(2026, 11, 2, h, m)  # noqa: E731
+    svc.db.save_day(DAY, [Entry(d(8), d(12), project_id=a), Entry(d(12), d(12, 30), kind=PAUSE),
+                          Entry(d(12, 30), d(14), project_id=b)])
+    svc.delete_entries([svc.day_entries(DAY)[1].id])
+    assert [(e.start.strftime("%H:%M"), e.end.strftime("%H:%M")) for e in svc.day_entries(DAY)] == [
+        ("08:00", "12:30"), ("12:30", "14:00")]
