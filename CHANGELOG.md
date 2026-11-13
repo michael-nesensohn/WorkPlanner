@@ -3,6 +3,11 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.20
+- Eintrag bearbeiten: Die Vorschau im Dialog meldete weiter „Zeiten dürfen nicht in der Zukunft liegen“, wenn der
+  frühere Start eine Pause überdeckt, und sperrte „Save“. Jetzt zeigt sie die Aufteilung um die Pause; bei überdeckten
+  Aufgaben den ersten Weg, der geht (die Rückfrage beim Speichern lässt wählen).
+
 ## 0.1.19
 - Eintrag bearbeiten: Überdeckt ein früherer Start andere Einträge (z. B. eine Mittagspause), gibt es in der Rückfrage
   neu **Aufteilen (Pause bleibt)**: die Pause bleibt, wo sie ist, der Eintrag teilt sich um sie herum auf (Aufgabe –

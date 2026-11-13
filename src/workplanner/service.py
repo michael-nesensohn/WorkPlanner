@@ -725,13 +725,30 @@ class TimeService:
             return entries
         return op
 
-    def preview_edit(self, entry_id: int, changes: dict, overlap: str = tl.PUSH):
-        day = self.db.get_entry(entry_id).start.date()
-        return self._run(day, self._edit_op(entry_id, changes, overlap), save=False)
+    def _overlap_modes(self, entry_id: int, changes: dict) -> list[str]:
+        """Wie überdeckte Einträge behandelt werden, solange der Nutzer nichts gewählt hat: nur Pausen: aufteilen (eine
+        Pause schneidet eine Aufgabe immer); sonst „behalten“, und für die Vorschau als Ausweich auch die anderen."""
+        covered = self.overlapped_entries(entry_id, changes)
+        if covered and all(e.kind == PAUSE for e in covered):
+            return [tl.SPLIT]
+        return [tl.PUSH, tl.SPLIT, tl.SHORTEN] if covered else [tl.PUSH]
 
-    def edit_entry(self, entry_id: int, changes: dict, overlap: str = tl.PUSH) -> None:
+    def preview_edit(self, entry_id: int, changes: dict, overlap: str | None = None):
+        """Vorschau ohne zu speichern. Ohne `overlap` wird der erste Weg gezeigt, der geht (die Rückfrage beim
+        Speichern lässt den Nutzer dann wählen)."""
         day = self.db.get_entry(entry_id).start.date()
-        self._run(day, self._edit_op(entry_id, changes, overlap), save=True)
+        error = None
+        for mode in ([overlap] if overlap else self._overlap_modes(entry_id, changes)):
+            try:
+                return self._run(day, self._edit_op(entry_id, changes, mode), save=False)
+            except TimelineError as ex:
+                error = error or ex
+        raise error
+
+    def edit_entry(self, entry_id: int, changes: dict, overlap: str | None = None) -> None:
+        day = self.db.get_entry(entry_id).start.date()
+        mode = overlap or self._overlap_modes(entry_id, changes)[0]
+        self._run(day, self._edit_op(entry_id, changes, mode), save=True)
 
     def overlapped_entries(self, entry_id: int, changes: dict) -> list[Entry]:
         """Davor liegende Einträge, die der neue Start ganz überdeckt. Dann muss der Nutzer wählen, wie sie

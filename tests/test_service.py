@@ -624,3 +624,31 @@ def test_deleting_a_pause_between_different_tasks_closes_the_gap(env):
     svc.delete_entries([svc.day_entries(DAY)[1].id])
     assert [(e.start.strftime("%H:%M"), e.end.strftime("%H:%M")) for e in svc.day_entries(DAY)] == [
         ("08:00", "12:30"), ("12:30", "14:00")]
+
+
+def test_preview_and_edit_without_mode_split_around_a_pause(env):
+    """Der Bearbeiten-Dialog zeigt die Vorschau ohne gewählten Modus: eine überdeckte Pause darf nicht scheitern."""
+    svc, clock, a, b, act = env
+    clock.set(16, 5)
+    d = lambda h, m=0: datetime(2026, 11, 2, h, m)  # noqa: E731
+    svc.db.save_day(DAY, [Entry(d(8), d(9), project_id=a), Entry(d(11, 40), d(12, 10), kind=PAUSE),
+                          Entry(d(12, 52), d(13, 30), project_id=a), Entry(d(13, 30), None, project_id=b)])
+    target = svc.day_entries(DAY)[2]
+    old, new = svc.preview_edit(target.id, {"start": d(9, 6)})
+    assert [(e.start.strftime("%H:%M"), e.kind) for e in new] == [
+        ("08:00", "work"), ("09:06", "work"), ("11:40", "pause"), ("12:10", "work"), ("13:30", "work")]
+    svc.edit_entry(target.id, {"start": d(9, 6)})
+    assert len(svc.day_entries(DAY)) == 5
+
+
+def test_preview_over_tasks_falls_back_when_push_would_reach_the_future(env):
+    svc, clock, a, b, act = env
+    clock.set(16, 5)
+    d = lambda h, m=0: datetime(2026, 11, 2, h, m)  # noqa: E731
+    svc.db.save_day(DAY, [Entry(d(9), d(12), project_id=a), Entry(d(12), d(14), project_id=a, note="x"),
+                          Entry(d(14), None, project_id=b)])
+    target = svc.day_entries(DAY)[1]
+    with pytest.raises(TimelineError):
+        svc.preview_edit(target.id, {"start": d(8)}, "push")         # Verschieben allein ginge in die Zukunft
+    old, new = svc.preview_edit(target.id, {"start": d(8)})      # irgendein Weg geht (Kürzen), Nutzer wählt beim Speichern
+    assert new
