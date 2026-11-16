@@ -159,3 +159,44 @@ def test_without_installer_callback_nothing_is_started(qapp, tmp_path):
     assert wait(qapp, lambda: d.update_btn.isVisibleTo(d))
     d.update_btn.click()
     assert wait(qapp, lambda: "nicht gestartet" in d.status.text())
+
+
+def _fallback_opener(final_url, html):
+    class Page:
+        def __init__(self, text, url):
+            self._text, self._url = text, url
+
+        def geturl(self):
+            return self._url
+
+        def read(self):
+            return self._text.encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def opener(request, timeout=None):
+        if request.full_url == updater.API:
+            raise urllib.error.HTTPError(updater.API, 403, "rate limit exceeded", {}, None)
+        if request.full_url.endswith("/releases/latest"):
+            return Page("", final_url)
+        return Page(html, request.full_url)
+    return opener
+
+
+def test_rate_limit_falls_back_to_github_pages():
+    html = ('<li><a href="/x/WorkPlanner/releases/download/v9.9.9/WorkPlanner-Handbuch.pdf">h</a> sha256:' + "b" * 64 +
+            '</li><li><a href="/x/WorkPlanner/releases/download/v9.9.9/WorkPlanner-Setup-9.9.9.exe">e</a> sha256:' + SHA + '</li>')
+    rel = updater.fetch_latest(_fallback_opener(updater.PAGE + "/releases/tag/v9.9.9", html))
+    assert (rel.version, rel.asset, rel.sha256) == ("9.9.9", "WorkPlanner-Setup-9.9.9.exe", SHA)
+    assert rel.url == updater.DOWNLOAD_PREFIX + "v9.9.9/WorkPlanner-Setup-9.9.9.exe"
+
+
+def test_rate_limit_without_fallback_gives_a_readable_message():
+    def opener(request, timeout=None):
+        raise urllib.error.HTTPError(request.full_url, 403, "rate limit exceeded", {}, None)
+    with pytest.raises(UpdateError, match="Abfragegrenze"):
+        updater.fetch_latest(opener)

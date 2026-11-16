@@ -10,6 +10,7 @@ import re
 import subprocess
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,10 +53,31 @@ def is_newer(latest: str, current: str = __version__) -> bool:
     return parse_version(latest) > parse_version(current)
 
 
-def _open(url: str, opener: Callable | None = None):
-    request = urllib.request.Request(url, headers={"User-Agent": f"WorkPlanner/{__version__}",
-                                                   "Accept": "application/vnd.github+json"})
+def _open(url: str, opener: Callable | None = None, accept: str = "application/vnd.github+json"):
+    request = urllib.request.Request(url, headers={"User-Agent": f"WorkPlanner/{__version__}", "Accept": accept})
     return (opener or urllib.request.urlopen)(request, timeout=TIMEOUT)
+
+
+def _fetch_without_api(opener: Callable | None = None) -> Release:
+    """Ausweg, wenn die GitHub-Schnittstelle sperrt (Fehler 403: höchstens 60 Abfragen je Stunde und Internetadresse,
+    in Firmennetzen mit gemeinsamer Adresse schnell erreicht): die normalen Seiten von github.com haben dieses Limit
+    nicht. Tag über die Weiterleitung von „releases/latest“, Installer und Prüfsumme aus der Dateiliste des Releases."""
+    with _open(f"{PAGE}/releases/latest", opener, "text/html") as response:
+        final = str(response.geturl())
+    m = re.search(r"/releases/tag/([^/?#]+)$", final)
+    if not m:
+        raise UpdateError("Auf GitHub gibt es noch kein Release.")
+    tag = urllib.parse.unquote(m.group(1))
+    version = ".".join(str(p) for p in parse_version(tag))
+    with _open(f"{PAGE}/releases/expanded_assets/{tag}", opener, "text/html") as response:
+        html = response.read().decode("utf-8", "replace")
+    for block in html.split("<li")[1:]:
+        name = re.search(r'/releases/download/[^"/]+/(WorkPlanner-Setup-[\d.]+\.exe)"', block)
+        digest = re.search(r"sha256:([0-9a-fA-F]{64})", block)
+        if name and digest:
+            return Release(tag, version, "", f"{PAGE}/releases/tag/{tag}", name.group(1),
+                           f"{DOWNLOAD_PREFIX}{tag}/{name.group(1)}", digest.group(1).lower())
+    raise UpdateError(f"Das Release {tag} enthält keinen Installer mit Prüfsumme.")
 
 
 def fetch_latest(opener: Callable | None = None) -> Release:
@@ -64,6 +86,13 @@ def fetch_latest(opener: Callable | None = None) -> Release:
         with _open(API, opener) as response:
             data = json.load(response)
     except urllib.error.HTTPError as ex:
+        if ex.code in (403, 429):   # Abfragegrenze der Schnittstelle: über die normalen Seiten versuchen
+            try:
+                return _fetch_without_api(opener)
+            except (UpdateError, urllib.error.URLError, OSError, ValueError, TimeoutError):
+                raise UpdateError(f"GitHub hat die Abfragen von dieser Internetadresse vorübergehend gesperrt "
+                                  f"(Fehler {ex.code}, Abfragegrenze). Bitte in einer Stunde noch einmal versuchen oder "
+                                  f"den Installer von {PAGE}/releases laden.") from ex
         raise UpdateError("Auf GitHub gibt es noch kein Release." if ex.code == 404 else
                           f"GitHub antwortet mit Fehler {ex.code}.") from ex
     except (urllib.error.URLError, OSError, ValueError, TimeoutError) as ex:

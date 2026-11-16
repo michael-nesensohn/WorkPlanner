@@ -3,6 +3,12 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.22
+- Update: Meldet GitHub „Fehler 403“ (Abfragegrenze der Schnittstelle: 60 Abfragen je Stunde und Internetadresse, in
+  Firmennetzen mit gemeinsamer Adresse schnell erreicht), fragt WorkPlanner jetzt die normalen Release-Seiten von
+  github.com ab. Dort gilt das Limit nicht; die Prüfsumme des Installers wird weiterhin geprüft. Die
+  Änderungsliste fehlt in diesem Fall in der Anzeige. Ohne Ausweg kommt eine verständliche Meldung statt „Fehler 403“.
+
 ## 0.1.21
 - Läuft eine Aufgabe über Mitternacht, wird sie um 00:00 beendet und am neuen Tag ab 00:00 mit denselben Angaben
   fortgesetzt (war es mehr als eine Nacht, endet sie nur). Ganz oben rechts erscheint ein **roter Hinweis**, bis du
