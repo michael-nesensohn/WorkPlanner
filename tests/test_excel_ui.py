@@ -609,3 +609,61 @@ def test_excel_view_reports_unreadable_file(qapp):
     assert wait(qapp, lambda: dlg.table.rowCount() == 2)
     dlg.tabs.setCurrentIndex(1)
     assert wait(qapp, lambda: "nicht lesbar" in dlg.sheet_note.text())
+
+
+def test_backup_is_made_before_writing_and_always_overwritten(qapp, tmp_path):
+    source = tmp_path / "Stunden_2026.xlsx"
+    source.write_bytes(b"alt")
+    folder = tmp_path / "sicherung"
+    svc = setup(excel_path=str(source))
+    assert svc.excel_backup is False and svc.excel_backup_path == r"C:\temp\Stundenzettel"      # Standard
+    svc.set_excel_backup(True, str(folder))
+    for content in (b"erste", b"zweite"):
+        source.write_bytes(content)
+        dlg = ExcelExportDialog(svc, workbook_factory=FakeWorkbookCM(FakeBook(FakeSheet("November"))).factory)
+        dlg._preview()
+        assert wait(qapp, lambda: dlg.ok.isEnabled())
+        dlg._write()
+        assert wait(qapp, lambda: "✓" in dlg.status.text())
+        assert "Sicherung:" in dlg.status.text()
+        svc.clear_excel_exported(date(2026, 11, 1), date(2026, 11, 30))          # zweiter Durchlauf trägt wieder ein
+    assert [p.name for p in folder.iterdir()] == ["Stunden_2026.xlsx"]                # eine Datei, kein Zeitstempel
+    assert (folder / "Stunden_2026.xlsx").read_bytes() == b"zweite"                    # immer überschrieben
+
+
+def test_no_backup_possible_means_nothing_is_written(qapp, tmp_path):
+    source = tmp_path / "Stunden_2026.xlsx"
+    source.write_bytes(b"x")
+    blocker = tmp_path / "ist_eine_datei"
+    blocker.write_text("kein Ordner")
+    svc = setup(excel_path=str(source))
+    svc.set_excel_backup(True, str(blocker))                                            # Ordner lässt sich nicht anlegen
+    sheet = FakeSheet("November")
+    dlg = ExcelExportDialog(svc, workbook_factory=FakeWorkbookCM(FakeBook(sheet)).factory)
+    dlg._preview()
+    assert wait(qapp, lambda: dlg.ok.isEnabled())
+    dlg._write()
+    assert "Sicherung nicht möglich" in dlg.status.text() and sheet.writes == []
+
+
+def test_backup_off_by_default_makes_no_copy(qapp, tmp_path):
+    source = tmp_path / "Stunden_2026.xlsx"
+    source.write_bytes(b"x")
+    svc = setup(excel_path=str(source))
+    dlg = ExcelExportDialog(svc, workbook_factory=FakeWorkbookCM(FakeBook(FakeSheet("November"))).factory)
+    dlg._preview()
+    assert wait(qapp, lambda: dlg.ok.isEnabled())
+    dlg._write()
+    assert wait(qapp, lambda: "✓" in dlg.status.text()) and "Sicherung" not in dlg.status.text()
+
+
+def test_backup_settings_are_shown_and_saved(qapp):
+    svc = setup(excel_path="")
+    w = MainWindow(svc)
+    page = w.master
+    assert not page.excel_backup.isChecked() and page.excel_backup_path.text() == r"C:\temp\Stundenzettel"
+    assert not page.excel_backup_path.isEnabled()
+    page.excel_backup.click()
+    page.excel_backup_path.setText(r"D:\Sicherung")
+    page.excel_backup_path.editingFinished.emit()
+    assert svc.excel_backup and svc.excel_backup_path == r"D:\Sicherung" and page.excel_backup_path.isEnabled()

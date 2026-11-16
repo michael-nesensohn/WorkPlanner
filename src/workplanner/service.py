@@ -196,6 +196,36 @@ class TimeService:
         self.db.set_setting("excel_save", "1" if save else "0")
 
     @property
+    def excel_backup(self) -> bool:
+        """Vor dem Eintragen in den Stundenzettel eine Sicherung der Datei anlegen."""
+        return self.db.get_setting("excel_backup") == "1"
+
+    @property
+    def excel_backup_path(self) -> str:
+        """Ordner der Sicherung (Standard C:\\temp\\Stundenzettel)."""
+        return self.db.get_setting("excel_backup_path").strip() or r"C:\temp\Stundenzettel"
+
+    def set_excel_backup(self, on: bool, folder: str) -> None:
+        self.db.set_setting("excel_backup", "1" if on else "0")
+        self.db.set_setting("excel_backup_path", folder.strip() or r"C:\temp\Stundenzettel")
+
+    def backup_excel(self) -> str:
+        """Kopiert den Stundenzettel (Stand der gespeicherten Datei) in den Sicherungsordner. Die Sicherung heißt wie die
+        Datei und wird jedes Mal **überschrieben**. Gibt den Pfad der Sicherung zurück; wirft OSError bei Problemen."""
+        import shutil
+        from pathlib import Path
+        source = Path(self.excel_path)
+        if not source.is_file():
+            raise OSError(f"Die Excel-Datei wurde nicht gefunden: {source}")
+        folder = Path(self.excel_backup_path)
+        target = folder / source.name
+        if target.resolve() == source.resolve():
+            raise OSError("Der Sicherungsordner darf nicht der Ordner der Excel-Datei selbst sein.")
+        folder.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        return str(target)
+
+    @property
     def excel_profile(self):
         """Aufbau der Excel-Vorlage (ohne gespeichertes oder bei ungültigem Profil: das Standardprofil)."""
         from .excel_timesheet import DEFAULT_PROFILE, ExcelError, profile_from_json

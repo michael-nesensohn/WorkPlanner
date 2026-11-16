@@ -183,6 +183,17 @@ class MasterDataPage(QWidget):
         self.excel_pause = QCheckBox("Pausen mit in den Stundenzettel eintragen (als Zeile „Pause“)")
         self.excel_pause.setToolTip("Aus: nur Arbeitszeit geht nach Excel. An: die als Eintrag angelegten Pausen werden "
                                     "unter dem Namen „Pause“ eingetragen (die Vorlage braucht dafür eine Zeile „Pause“).")
+        self.excel_backup = QCheckBox("Vor dem Eintragen eine Sicherung der Datei anlegen")
+        self.excel_backup.setToolTip("Kopiert den Stundenzettel (Stand der gespeicherten Datei) vor jeder Änderung in den "
+                                     "Sicherungsordner. Die Sicherung heißt wie die Datei und wird immer überschrieben.")
+        self.excel_backup_path = QLineEdit()
+        self.excel_backup_path.setPlaceholderText("C:\\temp\\Stundenzettel")
+        backup_browse = QPushButton("…")
+        backup_browse.setToolTip("Sicherungsordner auswählen")
+        backup_browse.clicked.connect(self._browse_backup)
+        brow = QHBoxLayout()
+        brow.addWidget(self.excel_backup_path, 1)
+        brow.addWidget(backup_browse)
         self.excel_status = QLabel("Eintragen: Berichte → „In Excel-Stundenzettel eintragen …“. Excel muss installiert sein.")
         self.excel_status.setWordWrap(True)
         self.excel_status.setStyleSheet("color:#667")
@@ -199,6 +210,8 @@ class MasterDataPage(QWidget):
         xl.addRow("Vorlage", qrow)
         xl.addRow("", self.excel_save)
         xl.addRow("", self.excel_pause)
+        xl.addRow("", self.excel_backup)
+        xl.addRow("Sicherung in", brow)
         xl.addRow("", self.excel_status)
         lay.addWidget(xbox)
         pbox = QGroupBox("PDF-Bericht")
@@ -241,6 +254,8 @@ class MasterDataPage(QWidget):
         self.default_project.currentIndexChanged.connect(self._save_settings)
         self.excel_path.editingFinished.connect(self._save_excel)
         self.excel_save.clicked.connect(lambda _: self._save_excel())
+        self.excel_backup.clicked.connect(lambda _: self._save_excel())
+        self.excel_backup_path.editingFinished.connect(self._save_excel)
         self.excel_pause.clicked.connect(lambda _: self._save_excel())
         self.lunch_mode.currentIndexChanged.connect(self._save_settings)
         self.autostart_cb.clicked.connect(self._autostart_changed)
@@ -288,6 +303,9 @@ class MasterDataPage(QWidget):
         self.excel_path.setText(self.svc.excel_path)
         self.excel_save.setChecked(self.svc.excel_save)
         self.excel_pause.setChecked(self.svc.excel_include_pause)
+        self.excel_backup.setChecked(self.svc.excel_backup)
+        self.excel_backup_path.setText(self.svc.excel_backup_path)
+        self.excel_backup_path.setEnabled(self.svc.excel_backup)
         self.excel_profile_label.setText(self.svc.excel_profile.name)
         for key, value in self.svc.pdf_header.items():
             self.pdf_fields[key].setText(value)
@@ -324,7 +342,15 @@ class MasterDataPage(QWidget):
     def _save_excel(self) -> None:
         self.svc.set_excel(self.excel_path.text(), self.excel_save.isChecked())
         self.svc.set_excel_include_pause(self.excel_pause.isChecked())
+        self.svc.set_excel_backup(self.excel_backup.isChecked(), self.excel_backup_path.text())
+        self.excel_backup_path.setEnabled(self.excel_backup.isChecked())
         self.changed.emit()  # die Berichte-Seite aktiviert ihren Knopf, sobald eine Datei eingestellt ist
+
+    def _browse_backup(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Sicherungsordner wählen", self.excel_backup_path.text())
+        if folder:
+            self.excel_backup_path.setText(folder)
+            self._save_excel()
 
     def _browse_excel(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Excel-Stundenzettel wählen", self.excel_path.text(),

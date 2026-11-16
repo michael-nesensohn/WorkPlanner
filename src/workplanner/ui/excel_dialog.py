@@ -267,6 +267,14 @@ class ExcelExportDialog(QDialog):
             if mode is None:
                 return
         keep_existing = mode == "excel"
+        self._backup_note = ""
+        if self.svc.excel_backup:   # Sicherung vor jeder Änderung; ohne Sicherung wird nichts eingetragen
+            try:
+                self._backup_note = self.svc.backup_excel()
+            except OSError as ex:
+                self.status.setText(f"<span style='color:#c0392b'>⚠ Sicherung nicht möglich, es wurde nichts "
+                                    f"eingetragen: {ex}</span>")
+                return
         path, save, items, profile = self.svc.excel_path, self.svc.excel_save, self._items, self.svc.excel_profile
         factory = self._factory
         self.ok.setEnabled(False)
@@ -293,5 +301,6 @@ class ExcelExportDialog(QDialog):
         self.svc.mark_excel_exported([(it.day, self._mark_key(it), it.hours) for it in self._items
                                       if (it.day, it.label) in done])
         saved = "und gespeichert" if self.svc.excel_save else "(noch nicht gespeichert – in Excel speichern!)"
-        self.status.setText(f"✓ {written} Wert(e) in Excel eingetragen {saved}.")
+        backup = f" Sicherung: {self._backup_note}" if getattr(self, "_backup_note", "") else ""
+        self.status.setText(f"✓ {written} Wert(e) in Excel eingetragen {saved}.{backup}")
         self.ok.setEnabled(False)

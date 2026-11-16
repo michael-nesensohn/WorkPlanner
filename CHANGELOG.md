@@ -3,6 +3,11 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.25
+- Excel-Stundenzettel (Einstellungen → Stammdaten): neue Option **Vor dem Eintragen eine Sicherung der Datei anlegen**
+  mit wählbarem Ordner (Standard `C:\temp\Stundenzettel`). Die Sicherung heißt wie die Excel-Datei und wird bei jedem
+  Eintragen **überschrieben**. Ist die Sicherung nicht möglich, wird nichts eingetragen.
+
 ## 0.1.24
 - Excel-Stundenzettel: Trägt WorkPlanner bei einem neuen Projekt die Projektnummer ein und Excel zeigt dazu von selbst
   keinen Projektnamen an (die Nachschlageformel der Vorlage kennt die Nummer nicht), wird der Projektname von
