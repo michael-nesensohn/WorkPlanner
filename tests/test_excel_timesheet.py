@@ -15,6 +15,8 @@ class FakeSheet:
         self.name = name
         self.v: dict[tuple[int, int], object] = {}
         self.formulas = dict(formulas or {})
+        self.text_cells: list[tuple[int, int, str]] = []   # als Text geschriebene Zellen (Projektnummern)
+        self.auto_names: dict[str, str] = {}      # Nummer -> Name, den Excel selbst anzeigt (Standard: keiner)
         self.writes: list[tuple[int, int, object]] = []
         for i, c0 in enumerate(BLOCKS):
             self.v[4, c0] = kw0 + i
@@ -43,6 +45,15 @@ class FakeSheet:
     def set_value(self, row, col, value):
         self.v[row, col] = value
         self.writes.append((row, col, value))
+        if col == 5 and value in self.auto_names:      # Nachschlageformel der Vorlage: Nummer -> Projektname
+            self.v[row, 1] = self.auto_names[value]
+
+    def set_text(self, row, col, text):
+        self.text_cells.append((row, col, text))
+        self.set_value(row, col, text)
+
+    def value(self, row, col):
+        return self.v.get((row, col))
 
 
 class FakeBook:
@@ -223,7 +234,8 @@ def test_apply_writes_setups_before_hours_and_counts_cells():
     book = FakeBook(sheet)
     plan = plan_all(book, [hours(D, 2.5, "E99999-01", "Neu"), hours(date(2026, 11, 3), 1.25, "E99999-01", "Neu")])
     assert apply_plan(book, plan) == 2
-    assert sheet.writes == [(10, 5, "E99999-01"), (10, 20, 2.5), (10, 21, 1.25)]
+    # erst die Nummer, dann (Excel kennt sie nicht, zeigt also keinen Namen) der Name von WorkPlanner, dann die Stunden
+    assert sheet.writes == [(10, 5, "E99999-01"), (10, 1, "Neu"), (10, 20, 2.5), (10, 21, 1.25)]
 
 
 def test_a_second_run_finds_the_rows_it_created_and_only_writes_hours():
@@ -535,3 +547,28 @@ def test_check_template_reports_unrecognised_sheet_and_missing_room():
                                               DEFAULT_PROFILE, 2026, [("E1", "Neu")])}
     assert not res["Dezember"].ok and "nicht" in res["Dezember"].text
     assert not res["November"].ok and any("Kein freier Platz" in w for w in res["November"].warnings)
+
+
+def test_name_from_workplanner_is_used_when_excel_shows_none_for_the_number():
+    sheet = FakeSheet()
+    book = FakeBook(sheet)
+    items = [hours(D, 2.0, "E99999-01", "Neues Projekt")]
+    apply_plan(book, plan_all(book, items))
+    assert sheet.v[10, 5] == "E99999-01" and sheet.v[10, 1] == "Neues Projekt"     # Excel kannte die Nummer nicht
+
+
+def test_name_found_by_excel_is_not_overwritten():
+    sheet = FakeSheet()
+    sheet.auto_names["E99999-01"] = "Name aus der Projektliste"
+    book = FakeBook(sheet)
+    apply_plan(book, plan_all(book, [hours(D, 2.0, "E99999-01", "Mein Name")]))
+    assert sheet.v[10, 5] == "E99999-01" and sheet.v[10, 1] == "Name aus der Projektliste"
+
+
+def test_project_number_is_always_written_as_text():
+    sheet = FakeSheet()
+    book = FakeBook(sheet)
+    apply_plan(book, plan_all(book, [hours(D, 2.0, "4711", "Nur Ziffern"), hours(D, 1.0, "E99999-01", "Mit Buchstaben")]))
+    assert (10, 5, "4711") in sheet.text_cells and (11, 5, "E99999-01") in sheet.text_cells
+    assert isinstance(sheet.v[10, 5], str) and sheet.v[10, 5] == "4711"
+    assert (10, 20, 2.0) in sheet.writes and not any(c == (10, 20, 2.0) for c in sheet.text_cells)   # Stunden bleiben Zahlen

@@ -3,6 +3,13 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.24
+- Excel-Stundenzettel: Trägt WorkPlanner bei einem neuen Projekt die Projektnummer ein und Excel zeigt dazu von selbst
+  keinen Projektnamen an (die Nachschlageformel der Vorlage kennt die Nummer nicht), wird der Projektname von
+  WorkPlanner in die Namenszelle geschrieben. Zeigt Excel einen Namen, bleibt er unverändert.
+- Excel-Stundenzettel: Die Projektnummer wird immer als **Text** eingetragen (Zellformat „Text“); Excel machte aus
+  „4711“ sonst eine Zahl, und Nachschlageformeln fanden das Projekt nicht.
+
 ## 0.1.23
 - Outlook-Panel: Über der Terminliste wählt man das Projekt (**Buchen auf**), vorgegeben ist „Meeting“; ein Klick auf
   einen Termin bucht darauf.

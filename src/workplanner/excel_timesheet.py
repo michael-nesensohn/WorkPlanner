@@ -320,11 +320,15 @@ class PlanLine:
 
 @dataclass
 class RowSetup:
-    """Eine neue Projektzeile: Nummer bzw. Name eintragen."""
+    """Eine neue Projektzeile: Nummer bzw. Name eintragen. Mit `name_fallback` (Spalte, Name) wird nach der Nummer
+    geprüft, ob Excel den Projektnamen selbst anzeigt (Nachschlageformel der Vorlage); wenn nicht, kommt der Name von
+    WorkPlanner in die Namenszelle."""
     sheet: str
     row: int
     col: int
     value: str
+    name_fallback: tuple[int, str] | None = None
+    as_text: bool = False   # Projektnummer: immer als Text eintragen (Excel würde „4711“ sonst zur Zahl machen)
 
 
 @dataclass
@@ -427,7 +431,8 @@ def plan_month(sheet: SheetAccess, month: int, year: int, items: list[DayHours],
                         "neue Zeile (Nr. + Name)" if has_nr else "neue Zeile (Name)")
                     rows_by_key[key] = (row, action, True)
                     if has_nr:
-                        plan.setups.append(RowSetup(sheet.name, row, layout.col_nr, it.number.strip()))
+                        fallback = (layout.col_name, it.name.strip()) if mode != "both" and layout.col_name and it.name.strip() else None
+                        plan.setups.append(RowSetup(sheet.name, row, layout.col_nr, it.number.strip(), fallback, as_text=True))
                     if not has_nr or mode == "both":
                         plan.setups.append(RowSetup(sheet.name, row, layout.col_name, it.name.strip()))
         row, action, new = rows_by_key[key]
@@ -510,7 +515,15 @@ def plan_all(workbook: "WorkbookAccess", items: list[DayHours], profile: ExcelPr
 def apply_plan(workbook: "WorkbookAccess", plan: Plan) -> int:
     """Schreibt Nummern/Namen neuer Zeilen und die Stunden; liefert die Anzahl geschriebener Stundenzellen."""
     for s in plan.setups:
-        workbook.sheet(s.sheet).set_value(s.row, s.col, s.value)
+        sheet = workbook.sheet(s.sheet)
+        write_text = getattr(sheet, "set_text", None) if s.as_text else None
+        (write_text or sheet.set_value)(s.row, s.col, s.value)
+        if s.name_fallback:   # zeigt Excel zur Nummer keinen Namen an, wird der Projektname von WorkPlanner eingetragen
+            col, name = s.name_fallback
+            read = getattr(sheet, "value", None)
+            shown = read(s.row, col) if read else None
+            if _text(shown) in ("", "0") or str(shown).startswith("#"):
+                sheet.set_value(s.row, col, name)
     for line in plan.lines:
         workbook.sheet(line.sheet).set_value(line.row, line.col, line.hours)
     return len(plan.lines)
@@ -746,6 +759,19 @@ class ComSheet:
 
     def set_value(self, row: int, col: int, value) -> None:
         self._retry(lambda: setattr(self._ws.Cells(row, col), "Value2", value))
+
+    def set_text(self, row: int, col: int, text: str) -> None:
+        """Trägt Text ein und lässt ihn Text bleiben (Zellformat „Text“): Excel macht aus „4711“ sonst eine Zahl."""
+        def write():
+            cell = self._ws.Cells(row, col)
+            cell.NumberFormat = "@"
+            cell.Value2 = text
+        self._retry(write)
+
+    def value(self, row: int, col: int):
+        """Angezeigter Wert der Zelle nach dem Neuberechnen (z. B. der per Formel gefundene Projektname)."""
+        self._retry(lambda: self._ws.Calculate())
+        return self._retry(lambda: self._ws.Cells(row, col).Value2)
 
 
 class ExcelWorkbook:
