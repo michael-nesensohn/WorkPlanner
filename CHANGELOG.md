@@ -3,6 +3,18 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.21
+- Läuft eine Aufgabe über Mitternacht, wird sie um 00:00 beendet und am neuen Tag ab 00:00 mit denselben Angaben
+  fortgesetzt (war es mehr als eine Nacht, endet sie nur). Ganz oben rechts erscheint ein **roter Hinweis**, bis du
+  den Tag bestätigst („Passt“) oder dir ansiehst und die Zeiten korrigierst. Auch Einträge der letzten Tage, die genau
+  um 00:00 enden, werden so gemeldet.
+- Handbuch: neuer Teil „Einträge zusammensetzen“, „aufteilen und wieder zusammenfügen“, „Zurück“ und „Aufgabe über
+  Mitternacht“ mit gezeichneten Zeitleisten-Bildern.
+- Neuer Knopf **Zusammensetzen …** (unter der Tabelle): nebeneinander liegende Einträge markieren, im Dialog das
+  Projekt (und die Tätigkeit) wählen; die Notizen werden zusammengefasst (ohne Wiederholungen, bearbeitbar). Start
+  vom ersten, Ende vom letzten Eintrag. Liegt eine Pause oder Mittagspause dazwischen, bleibt sie, wo sie ist; die
+  Aufgabe teilt sich um sie herum auf. Eine Vorschau zeigt das Ergebnis.
+
 ## 0.1.20
 - Eintrag bearbeiten: Die Vorschau im Dialog meldete weiter „Zeiten dürfen nicht in der Zukunft liegen“, wenn der
   frühere Start eine Pause überdeckt, und sperrte „Save“. Jetzt zeigt sie die Aufteilung um die Pause; bei überdeckten

@@ -386,6 +386,33 @@ def revert_to_previous(entries: list[Entry], now: datetime) -> list[Entry]:
     return _checked(entries[:-2] + [replace(prev, end=None, auto_until=None)], now)
 
 
+def merge_work(entries: list[Entry], first: int, last: int, fields: dict, now: datetime) -> list[Entry]:
+    """Setzt die nebeneinander liegenden Einträge `first`..`last` zusammen: Start des ersten, Ende des letzten, alle mit
+    den Angaben aus `fields` (Projekt, Tätigkeit, Notiz …). Pausen dazwischen bleiben, wo sie sind; die Aufgabe wird
+    um sie herum aufgeteilt (Aufgabe – Pause – Aufgabe)."""
+    sel = entries[first:last + 1]
+    if sum(1 for e in sel if e.kind == WORK) < 2:
+        raise TimelineError("Zum Zusammensetzen braucht es mindestens zwei Arbeitseinträge.")
+    out = list(entries[:first])
+    run: list[Entry] = []
+    used_id = False
+
+    def flush() -> None:
+        nonlocal used_id
+        if run:
+            out.append(Entry(run[0].start, run[-1].end, WORK, **fields, id=None if used_id else run[0].id))
+            used_id = True
+            run.clear()
+    for e in sel:
+        if e.kind == PAUSE:
+            flush()
+            out.append(e)
+        else:
+            run.append(e)
+    flush()
+    return _checked(out + list(entries[last + 1:]), now)
+
+
 def stop(entries: list[Entry], now: datetime) -> list[Entry]:
     if not entries or not entries[-1].running:
         return list(entries)

@@ -17,6 +17,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
+from reportlab.graphics.shapes import Drawing, Line, Rect, String
 from reportlab.lib.units import cm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -119,6 +120,38 @@ def table(rows: list[list[str]], widths: list[float], header: bool = True) -> Ta
         style.append(("BACKGROUND", (0, 0), (-1, 0), SOFT))
     t.setStyle(TableStyle(style))
     return t
+
+
+# Zeitleisten-Bilder: so wirken Zusammensetzen, Aufteilen und Pausen auf die Einträge eines Tages
+SEG_COLORS = {"a": ("#B9D1F2", "#1f2937"), "b": ("#BFE3C6", "#1f2937"), "c": ("#F6D9A6", "#1f2937"),
+              "m": ("#2F5597", "#ffffff"), "p": ("#D5DAE2", "#475467"), "n": ("#2F5597", "#ffffff")}
+
+
+def figure(rows: list[tuple[str, list[tuple[float, float, str, str]]]], caption: str, t0: float = 8.0,
+           t1: float = 14.0) -> KeepTogether:
+    """Mehrere Zeitleisten untereinander. Zeile = (Beschriftung, [(von, bis, Text, Art), ...]) mit Zeiten in Stunden;
+    Art: a/b/c = Projekte, m = zusammengesetzt, p = Pause."""
+    width, left = FRAME_W, 3.4 * cm
+    scale = (width - 4 - left) / (t1 - t0)
+    row_h, gap, top = 26, 12, 16
+    height = top + len(rows) * (row_h + gap)
+    d = Drawing(width, height)
+    for h in range(int(t0), int(t1) + 1):
+        x = left + (h - t0) * scale
+        d.add(Line(x, 2, x, height - top + 4, strokeColor=colors.HexColor("#E1E6EE"), strokeWidth=0.6))
+        d.add(String(x, height - 10, f"{h}:00", fontName="Seg", fontSize=7.5, fillColor=GREY, textAnchor="middle"))
+    for i, (label, segs) in enumerate(rows):
+        y = height - top - i * (row_h + gap) - row_h
+        d.add(String(0, y + row_h / 2 - 3, label, fontName="Seg-B", fontSize=8.5, fillColor=ACCENT))
+        for start, end, text, kind in segs:
+            fill, ink = SEG_COLORS[kind]
+            x1, x2 = left + (start - t0) * scale, left + (end - t0) * scale
+            d.add(Rect(x1 + 0.6, y, x2 - x1 - 1.2, row_h, rx=3, ry=3, fillColor=colors.HexColor(fill),
+                       strokeColor=colors.white, strokeWidth=0.8))
+            if pdfmetrics.stringWidth(text, "Seg", 7.5) < x2 - x1 - 6:
+                d.add(String((x1 + x2) / 2, y + row_h / 2 - 3, text, fontName="Seg", fontSize=7.5,
+                             fillColor=colors.HexColor(ink), textAnchor="middle"))
+    return KeepTogether([d, Spacer(1, 2), P(caption, CAP)])
 
 
 class Screens:
@@ -327,6 +360,65 @@ def story(s: Screens) -> list:
         "Im Modus „Nachfragen“ trägt <b>Pause nachtragen</b> die Mittagspause nachträglich ein, falls die Nachfrage "
         "verpasst wurde. Die Aufgabe, die zu dieser Zeit lief, wird aufgetrennt und läuft danach weiter.",
     ]))
+
+    add(P("Einträge zusammensetzen", H2))
+    add(P("Haben Sie eine Arbeit in mehrere Einträge zerlegt (z. B. durch Wechseln oder Verklicken), setzen Sie sie wieder "
+          "zu einem zusammen:"))
+    add(steps([
+        "Die Einträge markieren, die <b>direkt nebeneinander</b> liegen (Kästchen, Strg- oder Umschalt-Klick).",
+        "Unter der Tabelle auf <b>Zusammensetzen …</b> klicken.",
+        "Im Dialog <b>Projekt</b> und <b>Tätigkeit</b> wählen. Vorgeschlagen wird das Projekt mit der meisten Zeit. Die "
+        "<b>Notizen</b> stehen schon zusammengefasst darin (ohne Wiederholungen) und lassen sich ändern. Die Vorschau "
+        "zeigt das Ergebnis.",
+        "Auf <b>Zusammensetzen</b> klicken.",
+    ]))
+    add(bullets([
+        "Der neue Eintrag beginnt beim <b>Start des ersten</b> und endet beim <b>Ende des letzten</b> markierten Eintrags.",
+        "Liegt eine <b>Pause oder Mittagspause</b> dazwischen, bleibt sie, wo sie ist. Die Aufgabe teilt sich um sie "
+        "herum auf: Aufgabe – Pause – Aufgabe, beide Teile mit demselben Projekt und derselben Notiz.",
+        "Es muss mindestens zwei Arbeitseinträge geben, und es darf kein nicht markierter Eintrag dazwischen liegen "
+        "(sonst kommt eine Meldung). Eine Lücke zwischen zwei markierten Einträgen wird mit der Aufgabe gefüllt.",
+        "„Verrechenbar“ richtet sich nach dem gewählten Projekt. Die DevOps-Verknüpfung bleibt nur, wenn alle markierten "
+        "Einträge dieselbe hatten. War der letzte Eintrag die laufende Aufgabe, läuft das Ergebnis weiter.",
+    ]))
+    add(figure([("Vorher", [(8, 10, "Projekt A", "a"), (10, 12, "Projekt B", "b"), (12, 12.5, "Pause", "p"),
+                            (12.5, 14, "Projekt B", "b")]),
+                ("Nachher", [(8, 12, "Projekt X", "m"), (12, 12.5, "Pause", "p"), (12.5, 14, "Projekt X", "m")])],
+               "Zusammensetzen: Start des ersten, Ende des letzten Eintrags; die Pause bleibt, die Aufgabe teilt sich um sie herum"))
+    add(P("Einträge aufteilen und wieder zusammenfügen", H2))
+    add(P("Eine Pause <b>schneidet</b> eine Aufgabe immer: Liegt sie mitten in einer Aufgabe, wird diese aufgetrennt und "
+          "läuft danach mit denselben Angaben weiter."))
+    add(bullets([
+        "<b>Pause einfügen oder nachtragen:</b> Zur Mittagszeit fragt WorkPlanner „Pause starten?“. Mit <b>Pause einfügen …</b> "
+        "tragen Sie die Mittagspause ein; <b>Beginn und Länge</b> können Sie ändern. <b>Pause nachtragen</b> (unter der "
+        "Notiz) legt eine normale Pause an, <b>Mittagspause</b> (wenn der Abzug für den Tag aus war) die Mittagspause. "
+        "Endet die Pause erst später als jetzt, läuft sie weiter und setzt die Aufgabe zu ihrem Ende selbst fort.",
+        "<b>Früheren Start wählen:</b> Überdeckt der neue Start nur Pausen, teilt sich der Eintrag ohne Rückfrage um sie "
+        "herum auf. Überdeckt er andere Aufgaben, fragt WorkPlanner: <b>Behalten</b> (sie behalten ihre Dauer und rücken "
+        "nach hinten), <b>Kürzen</b> (sie werden kürzer) oder <b>Aufteilen (Pause bleibt)</b> (sie bleiben, wo sie sind, "
+        "der Eintrag teilt sich um sie herum auf).",
+        "<b>Pause löschen:</b> Die Aufgabe davor läuft bis zur nächsten durch. Waren davor und danach dieselbe Aufgabe "
+        "(gleiches Projekt, gleiche Tätigkeit und Notiz), werden sie wieder zu einem Eintrag. Eine gelöschte "
+        "Mittagspause schaltet für den Tag den Abzug aus.",
+    ]))
+    add(figure([("Vorher", [(8, 14, "Projekt A", "a")]),
+                ("Pause eingefügt", [(8, 12, "Projekt A", "a"), (12, 12.5, "Pause", "p"), (12.5, 14, "Projekt A", "a")]),
+                ("Pause gelöscht", [(8, 14, "Projekt A", "a")])],
+               "Eine Pause trennt die Aufgabe auf; beim Löschen der Pause wird sie wieder zusammengefügt"))
+    add(figure([("Vorher", [(8, 9, "Projekt A", "a"), (11, 12, "Pause", "p"), (12.5, 13.5, "Projekt B", "b")]),
+                ("Start von B auf 9:00", [(8, 9, "Projekt A", "a"), (9, 11, "Projekt B", "b"), (11, 12, "Pause", "p"),
+                                          (12, 13.5, "Projekt B", "b")])],
+               "Früherer Start über eine Pause: Der Eintrag teilt sich um die Pause herum auf, nichts rückt nach hinten"))
+    add(P("Verklickt? Zurück zur vorherigen Aufgabe", H2))
+    add(P("Haben Sie versehentlich eine neue Aufgabe gestartet, verwirft der Knopf <b>Zurück</b> (rechts neben „Zeit ändern“) die "
+          "laufende Aufgabe. Die vorherige läuft weiter und bekommt die Zeit dazwischen. Der Knopf erscheint nur, wenn "
+          "davor am selben Tag eine beendete Arbeitsaufgabe lag. Notiz und Angaben der verworfenen Aufgabe gehen verloren."))
+    add(P("Aufgabe über Mitternacht", H2))
+    add(P("Läuft eine Aufgabe über Mitternacht, beendet WorkPlanner sie um 00:00 und setzt sie am neuen Tag ab 00:00 mit "
+          "denselben Angaben fort (war es mehr als eine Nacht, endet sie nur). Ganz oben rechts erscheint dann ein "
+          "<font color='#b00020'><b>roter Hinweis</b></font>. Klicken Sie darauf: <b>Passt</b> bestätigt den Tag, "
+          "<b>Tag anzeigen</b> springt dorthin, damit Sie die Zeiten korrigieren können (z. B. wenn Sie am Abend "
+          "eigentlich aufgehört hatten)."))
 
     # --- 6 Outlook --------------------------------------------------------------------------------------------
     add(CondPageBreak(14 * cm))

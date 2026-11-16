@@ -1052,3 +1052,46 @@ def test_lunch_dialog_deduct_inserts_pause_and_task_keeps_running(qapp, monkeypa
     assert (entries[1].start.strftime("%H:%M"), entries[1].end.strftime("%H:%M")) == ("12:00", "12:10")   # gewählte Länge
     assert entries[2].running and svc.current().project_id == entries[0].project_id
     assert not svc.lunch_prompt_due()
+
+
+def test_merge_dialog_shows_result_and_saves(qapp):
+    from datetime import datetime
+    from workplanner.timeline import Entry, PAUSE
+    from workplanner.ui.dialogs import MergeDialog
+    db = Database()
+    seed(db)
+    clock = Clock(16, 0)
+    svc = TimeService(db, clock)
+    a, b = [p["id"] for p in svc.projects()][:2]
+    day = svc.now().date()
+    d = lambda h, m=0: datetime(day.year, day.month, day.day, h, m)  # noqa: E731
+    db.save_day(day, [Entry(d(8), d(10), project_id=a, note="Plan"), Entry(d(10), d(12), project_id=b, note="Bau"),
+                      Entry(d(12), d(12, 30), kind=PAUSE), Entry(d(12, 30), d(14), project_id=b, note="Bau")])
+    ids = [e.id for e in svc.day_entries(day)]
+    dlg = MergeDialog(svc, ids)
+    text = dlg.preview.text()
+    assert "08:00–12:00" in text and "12:30–14:00" in text and "Pause" in text
+    assert dlg.note.toPlainText() == "Plan\nBau"
+    dlg.project.setCurrentIndex(dlg.project.findData(a))
+    dlg._save()
+    got = svc.day_entries(day)
+    assert [(e.kind, e.project_id) for e in got] == [("work", a), ("pause", None), ("work", a)]
+
+
+def test_midnight_hint_appears_until_confirmed(qapp):
+    from datetime import datetime, timedelta
+    db = Database()
+    seed(db)
+    clock = Clock(22, 0)
+    svc = TimeService(db, clock)
+    w = MainWindow(svc)
+    assert w.midnight_btn.isHidden()
+    w._pick_project(svc.projects()[0]["id"])
+    first_day = svc.now().date()
+    clock.t = datetime(first_day.year, first_day.month, first_day.day, 7, 0) + timedelta(days=1)
+    svc.tick()
+    w.refresh()
+    assert not w.midnight_btn.isHidden() and "über Mitternacht" in w.midnight_btn.text()
+    svc.confirm_midnight(first_day)
+    w.refresh()
+    assert w.midnight_btn.isHidden()

@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS outlook_imported (key TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS excel_exported (file TEXT NOT NULL, day TEXT NOT NULL, key TEXT NOT NULL,
                                            hours REAL NOT NULL, PRIMARY KEY (file, day, key));
 CREATE TABLE IF NOT EXISTS day_flags (day TEXT PRIMARY KEY, pause_disabled INTEGER NOT NULL DEFAULT 0);
+-- Tage, an denen eine Aufgabe über Mitternacht lief (um 00:00 getrennt): bis zur Bestätigung rot angezeigt
+CREATE TABLE IF NOT EXISTS midnight_days (day TEXT PRIMARY KEY, confirmed INTEGER NOT NULL DEFAULT 0);
 """
 
 DEFAULT_SETTINGS = {"pause_start": "12:00", "pause_minutes": "30", "daily_target_minutes": "480",
@@ -204,6 +206,22 @@ class Database:
 
     def set_setting(self, key: str, value: str) -> None:
         self.conn.execute("INSERT OR REPLACE INTO settings VALUES (?, ?)", (key, str(value)))
+        self.conn.commit()
+
+    def midnight_unconfirmed(self) -> list[date]:
+        rows = self.conn.execute("SELECT day FROM midnight_days WHERE confirmed = 0 ORDER BY day").fetchall()
+        return [date.fromisoformat(r[0]) for r in rows]
+
+    def midnight_known(self, day: date) -> bool:
+        return self.conn.execute("SELECT 1 FROM midnight_days WHERE day = ?", (day.isoformat(),)).fetchone() is not None
+
+    def flag_midnight(self, day: date) -> None:
+        """Merkt den Tag zur Bestätigung (ein schon bestätigter Tag bleibt bestätigt)."""
+        self.conn.execute("INSERT OR IGNORE INTO midnight_days (day, confirmed) VALUES (?, 0)", (day.isoformat(),))
+        self.conn.commit()
+
+    def confirm_midnight(self, day: date) -> None:
+        self.conn.execute("INSERT OR REPLACE INTO midnight_days (day, confirmed) VALUES (?, 1)", (day.isoformat(),))
         self.conn.commit()
 
     def pause_disabled(self, day: date) -> bool:

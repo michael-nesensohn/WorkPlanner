@@ -120,6 +120,85 @@ def ask_overlap(parent, svc: TimeService, entry_id: int, changes: dict) -> str |
     return PUSH if clicked is keep else SHORTEN if clicked is cut else SPLIT if clicked is split else None
 
 
+class MergeDialog(QDialog):
+    """Nebeneinander liegende Einträge zu einem zusammensetzen: Projekt wählen, Notizen werden zusammengefasst. Pausen
+    dazwischen bleiben; die Aufgabe teilt sich um sie herum auf."""
+
+    def __init__(self, service: TimeService, entry_ids: list[int], parent=None):
+        super().__init__(parent)
+        self.svc, self.ids = service, entry_ids
+        self.setWindowTitle("Einträge zusammensetzen")
+        self.setMinimumWidth(520)
+        defaults = service.merge_defaults(entry_ids)   # wirft TimelineError, wenn es nicht geht
+        self._devops = defaults["devops_id"]
+        self.project = QComboBox()
+        service.default_project_id()
+        for p in sorted(service.projects(), key=lambda p: p["name"].casefold()):
+            self.project.addItem(p["name"], p["id"])
+        pid = defaults["project_id"]
+        if pid is not None and self.project.findData(pid) < 0:
+            self.project.insertItem(0, service.project_name(pid), pid)   # z. B. archiviert
+        self.project.setCurrentIndex(max(0, self.project.findData(pid)))
+        self.activity = QComboBox()
+        self.note = NoteEdit(defaults["note"], "Notiz")
+        self.preview = QLabel()
+        self.preview.setWordWrap(True)
+        self.preview.setTextFormat(Qt.RichText)
+        self.info = QLabel("Start vom ersten, Ende vom letzten Eintrag. Pausen dazwischen bleiben, wo sie sind.")
+        self.info.setWordWrap(True)
+        self.info.setStyleSheet("color:#667")
+        form = QFormLayout()
+        form.addRow("Projekt", self.project)
+        form.addRow("Tätigkeit", self.activity)
+        form.addRow("Notiz", self.note)
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        self.buttons.button(QDialogButtonBox.Save).setText("Zusammensetzen")
+        self.buttons.accepted.connect(self._save)
+        self.buttons.rejected.connect(self.reject)
+        lay = QVBoxLayout(self)
+        lay.addWidget(self.info)
+        lay.addLayout(form)
+        lay.addWidget(self.preview)
+        lay.addWidget(self.buttons)
+        self._fill_activities(defaults["activity_id"])
+        self.project.currentIndexChanged.connect(lambda _: (self._fill_activities(None), self._update()))
+        self.activity.currentIndexChanged.connect(lambda _: self._update())
+        self.note.textChanged.connect(self._update)
+        self._update()
+
+    def _fill_activities(self, selected: int | None) -> None:
+        self.activity.blockSignals(True)
+        self.activity.clear()
+        self.activity.addItem("–", None)
+        for a in self.svc.activities_for(self.project.currentData()):
+            self.activity.addItem(a["name"], a["id"])
+        if selected is not None:
+            self.activity.setCurrentIndex(max(0, self.activity.findData(selected)))
+        self.activity.blockSignals(False)
+
+    def _args(self):
+        return (self.ids, self.project.currentData(), self.activity.currentData(), self.note.toPlainText(), self._devops)
+
+    def _update(self) -> None:
+        try:
+            result = self.svc.preview_merge(*self._args())
+        except TimelineError as ex:
+            self.preview.setText(f"<span style='color:#c0392b'>⚠ {ex}</span>")
+            self.buttons.button(QDialogButtonBox.Save).setEnabled(False)
+            return
+        lines = [f"{fmt_time(e.start)}–{fmt_time(e.end) if e.end else 'läuft'}  {self.svc.entry_label(e)}" for e in result]
+        self.preview.setText("<b>Ergebnis:</b><br>" + "<br>".join(lines))
+        self.buttons.button(QDialogButtonBox.Save).setEnabled(True)
+
+    def _save(self) -> None:
+        try:
+            self.svc.merge_entries(*self._args())
+        except TimelineError as ex:
+            self.preview.setText(f"<span style='color:#c0392b'>⚠ {ex}</span>")
+            return
+        self.accept()
+
+
 class CalendarDialog(QDialog):
     """Datumsauswahl per Kalender; Doppelklick auf einen Tag übernimmt ihn."""
 

@@ -21,7 +21,7 @@ from .. import demo as demo_data
 from ..manual import manual_path
 from ..outlook import read_appointments
 from ..timeline import PAUSE, TimelineError, removed_entries
-from .dialogs import CalendarDialog, EntryDialog, ask_lunch_pause, ask_pause_times, NoteEdit, RunningTimeDialog, fmt_duration, fmt_time, note_one_line
+from .dialogs import CalendarDialog, EntryDialog, MergeDialog, ask_lunch_pause, ask_pause_times, NoteEdit, RunningTimeDialog, fmt_duration, fmt_time, note_one_line
 from .devops_page import DevOpsPage
 from .feature_panel import FeatureFeed, FeaturePanel, to_cache
 from .tiles import TileButton
@@ -181,7 +181,20 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.tabs)
         self.now_label = QLabel()  # aktuelle Uhrzeit oben rechts auf der Höhe der Reiter
         self.now_label.setStyleSheet("font-size:15px;font-weight:600;color:#2F5597;padding:0 14px")
-        self.tabs.setCornerWidget(self.now_label, Qt.TopRightCorner)
+        # ganz oben rechts: roter Hinweis (Aufgabe lief über Mitternacht, bitte bestätigen) vor der Uhrzeit
+        self.midnight_btn = QPushButton()
+        self.midnight_btn.setCursor(Qt.PointingHandCursor)
+        self.midnight_btn.setStyleSheet("QPushButton{color:#b00020;background:#fdecea;border:1px solid #b00020;"
+                                        "border-radius:10px;padding:3px 12px;font-weight:600}"
+                                        "QPushButton:hover{background:#f9d6d2}")
+        self.midnight_btn.clicked.connect(self._midnight_review)
+        self.midnight_btn.hide()
+        corner = QWidget()
+        cl = QHBoxLayout(corner)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cl.addWidget(self.midnight_btn)
+        cl.addWidget(self.now_label)
+        self.tabs.setCornerWidget(corner, Qt.TopRightCorner)
         self.tabs.addTab(self._build_today(), "Heute")
         self.week = WeekPage(service)
         self.week.open_day.connect(self._open_day_from_week)
@@ -498,7 +511,8 @@ class MainWindow(QMainWindow):
         self._lunch_asking = False
         rows = (QHBoxLayout(), QHBoxLayout())
         for row, items in zip(rows, ((("Bearbeiten", self._edit), ("Eintrag hinzufügen", self._add),
-                                      ("Löschen", self._delete)),
+                                      ("Löschen", self._delete),
+                                      ("Zusammensetzen …", self._merge)),
                                      (("Outlook-Termine importieren …", self._import_outlook),
                                       ("Notiz → DevOps-Task …", self._note_to_task)))):
             for text, fn in items:
@@ -764,6 +778,21 @@ class MainWindow(QMainWindow):
             return
         e = self._selected_entry()
         if e and EntryDialog(self.svc, self.day, e, parent=self).exec():
+            self.refresh()
+
+    def _merge(self) -> None:
+        """Markierte, nebeneinander liegende Einträge zu einem zusammensetzen (Projekt wählen, Notizen vereint)."""
+        chosen = self._selected_entries()
+        if len(chosen) < 2:
+            QMessageBox.information(self, "Zusammensetzen",
+                                    "Bitte mindestens zwei nebeneinander liegende Einträge markieren.")
+            return
+        try:
+            dlg = MergeDialog(self.svc, [e.id for e in chosen], self)
+        except TimelineError as ex:
+            QMessageBox.warning(self, "Nicht möglich", str(ex))
+            return
+        if dlg.exec():
             self.refresh()
 
     def _add(self) -> None:
@@ -1235,6 +1264,38 @@ class MainWindow(QMainWindow):
         self.day = d
         self.refresh()
 
+    def _update_midnight_hint(self) -> None:
+        days = self.svc.unconfirmed_midnight_days()
+        self.midnight_btn.setVisible(bool(days))
+        if days:
+            more = f" (+{len(days) - 1})" if len(days) > 1 else ""
+            self.midnight_btn.setText(f"⚠ {days[0]:%d.%m.}: über Mitternacht – bitte prüfen{more}")
+            self.midnight_btn.setToolTip("Eine Aufgabe lief über Mitternacht. Sie wurde um 00:00 beendet und am neuen Tag "
+                                         "fortgesetzt. Klicken zum Prüfen und Bestätigen.")
+
+    def _midnight_review(self) -> None:
+        days = self.svc.unconfirmed_midnight_days()
+        if not days:
+            self._update_midnight_hint()
+            return
+        day = days[0]
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Über Mitternacht")
+        box.setText(f"Am {day:%d.%m.%Y} lief eine Aufgabe über Mitternacht.")
+        box.setInformativeText("Sie wurde um 00:00 beendet und am neuen Tag ab 00:00 fortgesetzt (war es mehr als eine "
+                               "Nacht, endet sie nur). Passt das so? Sonst zeige den Tag an und korrigiere die Zeiten.")
+        ok = box.addButton("Passt", QMessageBox.AcceptRole)
+        show = box.addButton("Tag anzeigen", QMessageBox.ActionRole)
+        box.addButton("Später", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is ok:
+            self.svc.confirm_midnight(day)
+        elif box.clickedButton() is show:
+            self.tabs.setCurrentIndex(0)
+            self._set_day(day)
+        self._update_midnight_hint()
+
     def apply_devops(self) -> None:
         """Alles zu DevOps ein- bzw. ausblenden: Reiter, Features auf „Heute“, Verknüpfungszeile, Spalten, Knöpfe."""
         on = self.svc.devops_enabled
@@ -1283,6 +1344,7 @@ class MainWindow(QMainWindow):
     # --- Anzeige -----------------------------------------------------------------------
     def refresh(self) -> None:
         now = self.svc.now()
+        self._update_midnight_hint()
         self._entries = self.svc.day_entries(self.day)
         weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
         self.day_label.setText(f"{weekdays[self.day.weekday()]} {self.day:%d.%m.%Y}")

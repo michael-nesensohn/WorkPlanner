@@ -613,8 +613,10 @@ class TimeService:
         return self.db.pause_disabled(day)
 
     # --- Start / Stopp / Tick ------------------------------------------------------
-    def close_stale(self) -> None:
-        """Ein über Mitternacht laufender Eintrag wird um 24:00 beendet."""
+    def close_stale(self) -> bool:
+        """Ein über Mitternacht laufender Eintrag wird um 00:00 beendet und, wenn es genau eine Nacht war, am neuen
+        Tag ab 00:00 mit denselben Angaben fortgesetzt. Der Tag wird rot zur Bestätigung angezeigt
+        (`unconfirmed_midnight_days`): Stimmt es nicht, korrigiert man die Zeiten und bestätigt trotzdem."""
         run = self.db.running_entry()
         today = self.now().date()
         if run and run.start.date() < today:
@@ -622,6 +624,29 @@ class TimeService:
             day = run.start.date()
             entries = self.db.load_day(day)
             self.db.save_day(day, tl.stop(entries, midnight))
+            self.db.flag_midnight(day)
+            if run.kind == WORK and midnight.date() == today and not self.db.load_day(today):
+                self.db.save_day(today, [Entry(midnight, None, WORK, project_id=run.project_id,
+                                               activity_id=run.activity_id, note=run.note, billable=run.billable,
+                                               devops_id=run.devops_id)])
+            return True
+        return False
+
+    def unconfirmed_midnight_days(self) -> list[date]:
+        """Tage mit einer Aufgabe über Mitternacht, die noch bestätigt werden müssen. Prüft einmal je Tag auch die
+        letzten Tage auf Einträge, die genau um 00:00 enden (früher automatisch so beendet)."""
+        today = self.now().date()
+        if getattr(self, "_midnight_scanned", None) != today:
+            self._midnight_scanned = today
+            for back in range(1, 8):
+                day = today - timedelta(days=back)
+                end = datetime.combine(day + timedelta(days=1), time.min)
+                if not self.db.midnight_known(day) and any(e.end == end for e in self.db.load_day(day)):
+                    self.db.flag_midnight(day)
+        return self.db.midnight_unconfirmed()
+
+    def confirm_midnight(self, day: date) -> None:
+        self.db.confirm_midnight(day)
 
     def start_task(self, project_id: int | None, activity_id: int | None, note: str = "",
                    devops_id: int | None = None) -> None:
@@ -678,11 +703,11 @@ class TimeService:
 
     def tick(self) -> bool:
         """Wendet die Pausenautomatik auf heute an; True wenn sich etwas geändert hat."""
-        self.close_stale()
+        closed = self.close_stale()
         today = self.now().date()
         old, new = self._run(today, lambda es, now: es, save=False)
         if old == new:
-            return False
+            return closed
         self.db.save_day(today, new)
         return True
 
@@ -780,6 +805,68 @@ class TimeService:
 
     def insert_entry(self, new: Entry) -> None:
         self._run(new.start.date(), self._insert_op(new), save=True)
+
+    # --- Einträge zusammensetzen ---------------------------------------------------------------
+    def _merge_range(self, entry_ids: list[int]) -> tuple[date, list[Entry], int, int]:
+        found = [self.db.get_entry(i) for i in entry_ids]
+        found = [e for e in found if e is not None]
+        days = {e.start.date() for e in found}
+        if len(found) < 2 or len(days) != 1:
+            raise TimelineError("Bitte mindestens zwei Einträge desselben Tages markieren.")
+        day = days.pop()
+        entries = self.db.load_day(day)
+        pos = sorted(i for i, e in enumerate(entries) if e.id in set(entry_ids))
+        if pos[-1] - pos[0] + 1 != len(pos):
+            raise TimelineError("Die markierten Einträge müssen direkt nebeneinander liegen.")
+        return day, entries, pos[0], pos[-1]
+
+    def merge_defaults(self, entry_ids: list[int]) -> dict:
+        """Vorschlag für den zusammengesetzten Eintrag: Projekt mit der meisten Zeit (Tätigkeit seines längsten Eintrags), alle Notizen
+        (ohne Wiederholungen) untereinander, DevOps-Verknüpfung nur, wenn alle dieselbe haben."""
+        _, entries, first, last = self._merge_range(entry_ids)
+        works = [e for e in entries[first:last + 1] if e.kind == WORK]
+        if not works:
+            raise TimelineError("Unter den markierten Einträgen ist kein Arbeitseintrag.")
+        now = self.now()
+        totals: dict[int | None, timedelta] = {}
+        for e in works:
+            totals[e.project_id] = totals.get(e.project_id, timedelta()) + e.duration(now)
+        main = max(totals, key=lambda p: totals[p])   # Projekt mit der meisten Zeit
+        longest = max((e for e in works if e.project_id == main), key=lambda e: e.duration(now))
+        notes: list[str] = []
+        for e in works:
+            text = e.note.strip()
+            if text and text not in notes:
+                notes.append(text)
+        devops = {e.devops_id for e in works}
+        return {"project_id": longest.project_id, "activity_id": longest.activity_id, "note": "\n".join(notes),
+                "devops_id": devops.pop() if len(devops) == 1 else None}
+
+    def _merge_op(self, entry_ids: list[int], project_id: int | None, activity_id: int | None, note: str,
+                  devops_id: int | None):
+        day, _, _, _ = self._merge_range(entry_ids)
+        ids = set(entry_ids)
+        fields = {"project_id": project_id, "activity_id": activity_id, "note": note,
+                  "billable": self.project_billable(project_id), "devops_id": devops_id}
+
+        def op(entries: list[Entry], now: datetime) -> list[Entry]:
+            pos = sorted(i for i, e in enumerate(entries) if e.id in ids)
+            return tl.merge_work(entries, pos[0], pos[-1], fields, now)
+        return day, op
+
+    def preview_merge(self, entry_ids: list[int], project_id: int | None, activity_id: int | None, note: str,
+                      devops_id: int | None = None) -> list[Entry]:
+        """Die Einträge, die aus den markierten würden (ohne zu speichern)."""
+        day, op = self._merge_op(entry_ids, project_id, activity_id, note, devops_id)
+        old, new = self._run(day, op, save=False)
+        _, entries, first, last = self._merge_range(entry_ids)
+        tail = len(entries) - last - 1
+        return new[first:len(new) - tail]
+
+    def merge_entries(self, entry_ids: list[int], project_id: int | None, activity_id: int | None, note: str,
+                      devops_id: int | None = None) -> None:
+        day, op = self._merge_op(entry_ids, project_id, activity_id, note, devops_id)
+        self._run(day, op, save=True)
 
     def delete_entry(self, entry_id: int) -> None:
         entry = self.db.get_entry(entry_id)

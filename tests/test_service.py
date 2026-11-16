@@ -216,9 +216,13 @@ def test_stale_running_entry_closed_at_midnight(env):
     svc, clock, a, b, act = env
     svc.start_task(a, act)
     clock.t = datetime(2026, 11, 3, 7, 0)
-    svc.tick()
-    assert svc.current() is None
+    assert svc.tick() is True
     assert svc.day_entries(DAY)[-1].end == datetime(2026, 11, 3, 0, 0)
+    cont = svc.current()                                   # läuft am neuen Tag ab 00:00 mit denselben Angaben weiter
+    assert cont is not None and cont.start == datetime(2026, 11, 3, 0, 0) and cont.project_id == a
+    assert svc.unconfirmed_midnight_days() == [DAY]        # bis zur Bestätigung rot angezeigt
+    svc.confirm_midnight(DAY)
+    assert svc.unconfirmed_midnight_days() == []
 
 
 def test_project_number_display_and_migration(tmp_path):
@@ -652,3 +656,78 @@ def test_preview_over_tasks_falls_back_when_push_would_reach_the_future(env):
         svc.preview_edit(target.id, {"start": d(8)}, "push")         # Verschieben allein ginge in die Zukunft
     old, new = svc.preview_edit(target.id, {"start": d(8)})      # irgendein Weg geht (Kürzen), Nutzer wählt beim Speichern
     assert new
+
+
+def _merge_day(svc, a, b):
+    d = lambda h, m=0: datetime(2026, 11, 2, h, m)  # noqa: E731
+    svc.db.save_day(DAY, [Entry(d(8), d(10), project_id=a, note="Plan"), Entry(d(10), d(12), project_id=b, note="Bau"),
+                          Entry(d(12), d(12, 30), kind=PAUSE),
+                          Entry(d(12, 30), d(14), project_id=b, note="Bau"), Entry(d(14), d(15), project_id=a, note="Test")])
+    return [e.id for e in svc.day_entries(DAY)]
+
+
+def test_merge_keeps_pause_and_splits_the_task_around_it(env):
+    svc, clock, a, b, act = env
+    clock.set(16)
+    ids = _merge_day(svc, a, b)
+    defaults = svc.merge_defaults(ids[:4])
+    assert defaults["project_id"] == b and defaults["note"] == "Plan\nBau"        # Projekt mit der meisten Zeit, Notizen ohne Doppelte
+    svc.merge_entries(ids[:4], a, act, defaults["note"])
+    got = svc.day_entries(DAY)
+    assert [(e.start.strftime("%H:%M"), e.end.strftime("%H:%M"), e.kind) for e in got] == [
+        ("08:00", "12:00", "work"), ("12:00", "12:30", "pause"), ("12:30", "14:00", "work"), ("14:00", "15:00", "work")]
+    assert got[0].project_id == got[2].project_id == a and got[0].note == got[2].note == "Plan\nBau"
+    assert got[3].note == "Test"                                                    # nicht markiert: unverändert
+
+
+def test_merge_without_pause_gives_one_entry_from_first_start_to_last_end(env):
+    svc, clock, a, b, act = env
+    clock.set(16)
+    ids = _merge_day(svc, a, b)
+    svc.merge_entries([ids[0], ids[1]], b, None, "alles")
+    got = svc.day_entries(DAY)
+    assert (got[0].start.strftime("%H:%M"), got[0].end.strftime("%H:%M"), got[0].project_id, got[0].note) == (
+        "08:00", "12:00", b, "alles") and len(got) == 4
+
+
+def test_merge_needs_neighbours_and_two_work_entries(env):
+    svc, clock, a, b, act = env
+    clock.set(16)
+    ids = _merge_day(svc, a, b)
+    with pytest.raises(TimelineError):
+        svc.merge_entries([ids[0], ids[3]], a, None, "")                           # Lücke in der Markierung
+    with pytest.raises(TimelineError):
+        svc.merge_entries([ids[1], ids[2]], a, None, "")                           # nur ein Arbeitseintrag + Pause
+    assert len(svc.day_entries(DAY)) == 5
+
+
+def test_merge_with_running_last_entry_keeps_it_running(env):
+    svc, clock, a, b, act = env
+    clock.set(9, 0)
+    svc.start_task(a, act, "Eins")
+    clock.set(10, 0)
+    svc.start_task(b, act, "Zwei")
+    clock.set(10, 30)
+    ids = [e.id for e in svc.day_entries(DAY)]
+    svc.merge_entries(ids, a, act, "Eins\nZwei")
+    got = svc.day_entries(DAY)
+    assert len(got) == 1 and got[0].running and got[0].start.strftime("%H:%M") == "09:00" and got[0].project_id == a
+
+
+def test_midnight_after_several_days_only_stops_and_flags(env):
+    svc, clock, a, b, act = env
+    svc.start_task(a, act, "Vergessen")
+    clock.t = datetime(2026, 11, 5, 7, 0)
+    svc.tick()
+    assert svc.current() is None and svc.unconfirmed_midnight_days() == [DAY]
+
+
+def test_old_entry_ending_exactly_at_midnight_is_flagged_once(env):
+    svc, clock, a, b, act = env
+    d = lambda day, h, m=0: datetime(2026, 11, day, h, m)  # noqa: E731
+    svc.db.save_day(date(2026, 11, 2), [Entry(d(2, 8), d(3, 0), project_id=a)])
+    clock.t = d(4, 9)
+    assert svc.unconfirmed_midnight_days() == [date(2026, 11, 2)]
+    svc.confirm_midnight(date(2026, 11, 2))
+    clock.t = d(5, 9)                                       # neuer Tag, neue Prüfung: bestätigt bleibt bestätigt
+    assert svc.unconfirmed_midnight_days() == []
