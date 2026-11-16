@@ -310,8 +310,12 @@ class TimeService:
         pid = next((p["id"] for p in self.projects() if p["name"].casefold() in self.OUTLOOK_PROJECTS), None)
         if pid is None:
             pid = self.default_project_id(create=False)
-        aid = next((a["id"] for a in self.activities_for(pid) if a["name"].casefold() in self.OUTLOOK_ACTIVITIES), None)
-        return pid, aid
+        return pid, self.outlook_activity_for(pid)
+
+    def outlook_activity_for(self, project_id: int | None) -> int | None:
+        """Tätigkeit „Besprechung/Meeting“ des Projekts (oder eine globale), falls es sie gibt."""
+        return next((a["id"] for a in self.activities_for(project_id)
+                     if a["name"].casefold() in self.OUTLOOK_ACTIVITIES), None)
 
     @property
     def call_monitor(self) -> bool:
@@ -1000,7 +1004,7 @@ class TimeService:
             lunch = self.lunch_overlap(e, windows[e.start.date()], now)
             rows.append({
                 "date": e.start.date(), "start": e.start, "end": e.end or now,
-                "running": e.running, "kind": e.kind,
+                "id": e.id, "running": e.running, "kind": e.kind,
                 "project": self.entry_label(e), "project_number": self.project_number(e.project_id),
                 "activity": self.activity_name(e.activity_id), "note": e.note,
                 "billable": e.billable and e.kind == WORK, "devops_id": e.devops_id,

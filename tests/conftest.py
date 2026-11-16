@@ -43,6 +43,28 @@ def _qt_cleanup_at_end():
 
 
 @pytest.fixture(autouse=True)
+def _close_windows_after_each_test():
+    """Fenster eines Tests nicht in den nächsten mitnehmen: Ihre Timer (MainWindow tickt jede Sekunde) liefen sonst in
+    `processEvents` späterer Tests mit, und der Python-Müllsammler zerstörte sie irgendwann mitten in einem fremden Test
+    (zufälliger Absturz „Fatal Python error“, besonders in tests/test_excel_ui.py)."""
+    yield
+    try:
+        from PySide6.QtCore import QCoreApplication, QEvent
+        from PySide6.QtWidgets import QApplication
+    except ImportError:
+        return
+    app = QApplication.instance()
+    if app is None:
+        return
+    for widget in app.topLevelWidgets():
+        widget.close()
+        widget.deleteLater()
+    app.processEvents()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    gc.collect()
+
+
+@pytest.fixture(autouse=True)
 def _no_blocking_overlap_question(monkeypatch):
     """Die Rückfrage „Dauer beibehalten / Kürzen“ würde im Test blockieren: Standard ist „beibehalten“."""
     try:

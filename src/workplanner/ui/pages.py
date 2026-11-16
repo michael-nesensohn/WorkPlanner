@@ -8,7 +8,7 @@ from PySide6.QtCore import QDate, QTime, Qt, Signal
 from PySide6.QtGui import QColor, QKeySequence
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDateEdit, QDialog, QDialogButtonBox,
                                QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QKeySequenceEdit, QLabel,
-                               QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
+                               QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton,
                                QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QTimeEdit, QVBoxLayout, QWidget)
 
 from .. import autostart
@@ -710,9 +710,13 @@ class WeekPage(QWidget):
 # --- Berichte -------------------------------------------------------------------------
 
 class ReportPage(QWidget):
+    open_day = Signal(object)        # date: „Springe zu diesem Tag“ (öffnet den Tag unter „Heute“)
+    entries_changed = Signal()       # ein Eintrag wurde in der Vorschau geändert
+
     def __init__(self, service: TimeService):
         super().__init__()
         self.svc = service
+        self._shown: list[dict] = []
         today = service.now().date()
         first = today.replace(day=1)
         self.first = QDateEdit(QDate(first.year, first.month, first.day))
@@ -774,6 +778,11 @@ class ReportPage(QWidget):
         self.preview = QTableWidget(0, 0)
         self.preview.setEditTriggers(QTableWidget.NoEditTriggers)
         self.preview.verticalHeader().setVisible(False)
+        self.preview.cellDoubleClicked.connect(self._preview_edit)
+        self.preview.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.preview.customContextMenuRequested.connect(self._preview_menu)
+        self.preview.setToolTip("Doppelklick: Projekt, Tätigkeit und Notiz des Eintrags ändern (Zeiten nicht). "
+                                "Rechtsklick: zu diesem Tag springen.")
         self.preview_note = QLabel()
         lay.addWidget(QLabel("<b>Vorschau Export</b>"))
         lay.addWidget(self.preview, 1)
@@ -812,6 +821,7 @@ class ReportPage(QWidget):
     def _fill_preview(self, rows: list[dict]) -> None:
         cols = self._columns()
         shown = rows[:PREVIEW_ROWS]
+        self._shown = shown
         self.preview.setColumnCount(len(cols))
         self.preview.setHorizontalHeaderLabels([COLUMNS[c][0] for c in cols])
         self.preview.setRowCount(len(shown))
@@ -824,6 +834,35 @@ class ReportPage(QWidget):
         self.preview.resizeColumnsToContents()
         self.preview_note.setText(f"Es werden nur die ersten {PREVIEW_ROWS} von {len(rows)} Einträgen angezeigt."
                                   if len(rows) > PREVIEW_ROWS else "")
+
+    def _preview_row(self, row: int) -> dict | None:
+        return self._shown[row] if 0 <= row < len(self._shown) else None
+
+    def _preview_edit(self, row: int, _column: int = 0) -> None:
+        """Doppelklick: Projekt, Tätigkeit und Notiz des Eintrags ändern; die Zeiten bleiben unverändert."""
+        r = self._preview_row(row)
+        entry = self.svc.db.get_entry(r["id"]) if r and r.get("id") else None
+        if entry is None or entry.kind == "pause":
+            return
+        from .dialogs import EntryDialog
+        if EntryDialog(self.svc, entry.start.date(), entry, parent=self.window(), lock_times=True).exec():
+            self._update()
+            self.entries_changed.emit()
+
+    def _preview_menu(self, pos) -> None:
+        item = self.preview.itemAt(pos)
+        r = self._preview_row(item.row()) if item else None
+        if r is None:
+            return
+        menu = QMenu(self.preview)
+        edit = menu.addAction("Eintrag ändern (Projekt, Tätigkeit, Notiz) …")
+        edit.setEnabled(r["kind"] != "pause")
+        jump = menu.addAction(f"Springe zu diesem Tag ({r['date']:%d.%m.%Y})")
+        chosen = menu.exec(self.preview.viewport().mapToGlobal(pos))
+        if chosen is edit:
+            self._preview_edit(item.row())
+        elif chosen is jump:
+            self.open_day.emit(r["date"])
 
     def _update(self) -> None:
         rows = self._rows()

@@ -1095,3 +1095,112 @@ def test_midnight_hint_appears_until_confirmed(qapp):
     svc.confirm_midnight(first_day)
     w.refresh()
     assert w.midnight_btn.isHidden()
+
+
+def test_outlook_panel_project_defaults_to_meeting_and_books_on_the_chosen_one(qapp):
+    from datetime import datetime
+    from workplanner.outlook import Appointment
+    db = Database()
+    seed(db)
+    svc = TimeService(db, Clock(15, 0))
+    w = MainWindow(svc)
+    w._fill_outlook_projects()
+    default_pid, _ = svc.outlook_defaults()
+    assert svc.project_name(default_pid) == "Meeting" and w.outlook.project.currentData() == default_pid
+    other = next(p["id"] for p in svc.projects() if p["id"] != default_pid)
+    w.outlook.project.setCurrentIndex(w.outlook.project.findData(other))
+    w._fill_outlook_projects()                                       # Neu füllen behält die Wahl
+    assert w.outlook.project.currentData() == other
+    d = lambda h, m=0: datetime(2026, 11, 2, h, m)  # noqa: E731
+    w._book_appointment(Appointment("z", "Planung", d(9), d(10)))
+    assert [e.project_id for e in svc.day_entries(d(9).date()) if e.note == "Planung"] == [other]
+
+
+def test_report_preview_double_click_edits_without_times(qapp, monkeypatch):
+    from datetime import datetime
+    from workplanner.timeline import Entry
+    from workplanner.ui import pages
+    db = Database()
+    seed(db)
+    svc = TimeService(db, Clock(15, 0))
+    a, b = [p["id"] for p in svc.projects()][:2]
+    day = svc.now().date()
+    d = lambda h, m=0: datetime(day.year, day.month, day.day, h, m)  # noqa: E731
+    db.save_day(day, [Entry(d(9), d(10), project_id=a, note="alt")])
+    page = pages.ReportPage(svc)
+    page.first.setDate(page.last.date().addDays(-3))
+    page._update()
+    assert page.preview.rowCount() == 1
+    opened = {}
+
+    class Fake:
+        def __init__(self, svc_, day_, entry, parent=None, lock_times=False):
+            opened["lock"], opened["entry"] = lock_times, entry
+            svc_.edit_entry(entry.id, {"project_id": b, "note": "neu"})
+
+        def exec(self):
+            return 1
+    monkeypatch.setattr("workplanner.ui.dialogs.EntryDialog", Fake)
+    page._preview_edit(0)
+    got = svc.day_entries(day)[0]
+    assert opened["lock"] is True and (got.project_id, got.note) == (b, "neu") and got.start == d(9) and got.end == d(10)
+    jumped = []
+    page.open_day.connect(jumped.append)
+    page.open_day.emit(day)
+    assert jumped == [day]
+
+
+def test_entry_dialog_with_locked_times_disables_the_time_fields(qapp):
+    from datetime import datetime
+    from workplanner.timeline import Entry
+    from workplanner.ui.dialogs import EntryDialog
+    db = Database()
+    seed(db)
+    svc = TimeService(db, Clock(15, 0))
+    day = svc.now().date()
+    d = lambda h, m=0: datetime(day.year, day.month, day.day, h, m)  # noqa: E731
+    db.save_day(day, [Entry(d(9), d(10), project_id=svc.projects()[0]["id"], note="x")])
+    e = svc.day_entries(day)[0]
+    dlg = EntryDialog(svc, day, e, lock_times=True)
+    assert not dlg.start.isEnabled() and not dlg.end.isEnabled() and not dlg.duration.isEnabled()
+    assert dlg.project.isEnabled() and dlg.note.isEnabled()
+    assert dlg._changes() == {}
+
+
+def test_tile_context_menu_hangs_the_running_time_on_another_project(qapp, monkeypatch):
+    from workplanner.ui import main_window
+    db = Database()
+    seed(db)
+    clock = Clock(9, 0)
+    svc = TimeService(db, clock)
+    a, b = [p["id"] for p in svc.projects()][:2]
+    w = MainWindow(svc)
+    w._pick_project(a)
+    clock.set(9, 30)
+    svc.tick()
+    run = svc.current()
+
+    class FakeMenu:
+        def __init__(self, parent=None):
+            self.actions = []
+
+        def addAction(self, text):
+            class A:
+                def __init__(s, t):
+                    s.t = t
+
+                def setEnabled(s, v):
+                    s.enabled = v
+
+                def setToolTip(s, v):
+                    pass
+            act = A(text)
+            self.actions.append(act)
+            return act
+
+        def exec(self, pos):
+            return self.actions[0]
+    monkeypatch.setattr(main_window, "QMenu", FakeMenu)
+    w._tile_menu(b, None)
+    got = svc.current()
+    assert got.id == run.id and got.project_id == b and got.start == run.start        # umgehängt, nicht neu gestartet

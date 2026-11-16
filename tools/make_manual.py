@@ -300,6 +300,10 @@ def story(s: Screens) -> list:
         "<b>Stopp</b> beendet die laufende Aufgabe.",
         "<b>Tätigkeit</b> wählen Sie über die Knöpfe in der Start-Karte (blau = gewählt).",
     ]))
+    add(P("Umhängen per Rechtsklick", H2))
+    add(P("Ein <b>Rechtsklick</b> auf ein Projekt der Schnellauswahl öffnet ein Menü: <b>Umhängen auf …</b> hängt die "
+          "laufende Zeit auf dieses Projekt um (Notiz und Startzeit bleiben), <b>Neu starten auf …</b> beginnt einen "
+          "neuen Eintrag."))
     add(P("Notiz und „verrechenbar“", H2))
     add(P("Das Notizfeld gehört zur laufenden Aufgabe, darf mehrere Zeilen haben und wird beim Verlassen des Feldes "
           "gespeichert. Das Kästchen „verrechenbar“ wird vom Projekt vorbelegt und lässt sich pro Eintrag ändern."))
@@ -437,6 +441,8 @@ def story(s: Screens) -> list:
         "Der Eintrag bekommt den Betreff als Notiz, Projekt und Tätigkeit aus der Voreinstellung: ein Projekt „Meeting“, "
         "„Besprechung“ oder „Termine“ (falls vorhanden, sonst das Standardprojekt) und die Tätigkeit „Besprechung“ oder "
         "„Meeting“.",
+        "Über der Terminliste wählen Sie das Projekt (<b>Buchen auf</b>); vorgegeben ist „Meeting“. Ein Klick auf einen "
+        "Termin bucht auf das gewählte Projekt.",
         "Würde ein Termin bestehende Einträge vollständig überdecken, fragt WorkPlanner vorher nach.",
         "Ganztägige und abgesagte Termine werden ausgeblendet. Der Kreispfeil-Knopf liest die Termine neu; sonst "
         "geschieht das beim Tageswechsel und alle 10 Minuten.",
@@ -533,7 +539,9 @@ def story(s: Screens) -> list:
         "Verrechenbar, Projektnr., Projekt, Tätigkeit, Notiz und DevOps. Ihre Auswahl wird gespeichert und gilt für "
         "Excel <b>und</b> PDF.",
         "<b>Pausen-Einträge anzeigen und exportieren</b> (standardmäßig aus) nimmt die Pausen in Vorschau und Export auf.",
-        "Die <b>Vorschau</b> darunter zeigt genau diese Spalten.",
+        "Die <b>Vorschau</b> darunter zeigt genau diese Spalten. Mit <b>Doppelklick</b> auf eine Zeile ändern Sie Projekt, "
+        "Tätigkeit und Notiz des Eintrags (die Zeiten nicht); per <b>Rechtsklick → Springe zu diesem Tag</b> öffnen Sie "
+        "den Tag unter „Heute“.",
         "<b>Nach Excel exportieren …</b> speichert eine .xlsx-Datei.",
         "<b>Als PDF exportieren …</b> speichert einen Bericht (siehe unten).",
     ]))

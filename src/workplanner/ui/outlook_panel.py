@@ -5,8 +5,8 @@ import threading
 from datetime import date, datetime
 
 from PySide6.QtCore import QObject, QSize, Qt, Signal
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QToolButton, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QToolButton,
+                               QVBoxLayout, QWidget)
 
 from ..outlook import Appointment, OutlookError, read_appointments
 from .dialogs import fmt_duration, fmt_time
@@ -84,6 +84,11 @@ class OutlookPanel(QWidget):
         refresh.setToolTip("Termine jetzt neu aus Outlook lesen")
         refresh.clicked.connect(self.refresh_requested)
         head.addWidget(refresh)
+        self.project = QComboBox()
+        self.project.setToolTip("Auf dieses Projekt wird ein angeklickter Termin gebucht (Standard: Meeting)")
+        pick = QHBoxLayout()
+        pick.addWidget(QLabel("Buchen auf"))
+        pick.addWidget(self.project, 1)
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.status.setStyleSheet("color:#667;font-size:11px")
@@ -99,10 +104,22 @@ class OutlookPanel(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addLayout(head)
+        lay.addLayout(pick)
         lay.addWidget(self.status)
         lay.addWidget(scroll, 1)
         self.setMinimumWidth(180)
         self.set_status("Outlook ist nicht aktiv.")
+
+    def set_projects(self, projects: list[tuple[str, int]], default: int | None) -> None:
+        """Projektauswahl neu füllen; die bisherige Wahl bleibt, sonst gilt `default` (Meeting)."""
+        keep = self.project.currentData()
+        self.project.blockSignals(True)
+        self.project.clear()
+        for name, pid in projects:
+            self.project.addItem(name, pid)
+        want = keep if keep is not None and self.project.findData(keep) >= 0 else default
+        self.project.setCurrentIndex(max(0, self.project.findData(want)))
+        self.project.blockSignals(False)
 
     def set_status(self, text: str) -> None:
         self.status.setText(text)

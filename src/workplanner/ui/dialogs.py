@@ -210,6 +210,16 @@ class CalendarDialog(QDialog):
         self.calendar.setFirstDayOfWeek(Qt.Monday)
         self.calendar.setSelectedDate(QDate(current.year, current.month, current.day))
         self.calendar.activated.connect(lambda _: self.accept())
+        # Textfarben ausdrücklich setzen: sonst ist Monat/Jahr im aktiven Fenster weiß auf weiß (nur inaktiv sichtbar)
+        self.calendar.setStyleSheet(
+            "QCalendarWidget QToolButton#qt_calendar_monthbutton, QCalendarWidget QToolButton#qt_calendar_yearbutton"
+            "{ color:#1f2937; background:white; border:1px solid #c9d3e0; border-radius:8px; padding:3px 10px; }"
+            "QCalendarWidget QToolButton#qt_calendar_monthbutton:hover,"
+            "QCalendarWidget QToolButton#qt_calendar_yearbutton:hover { background:#eef3fa; }"
+            "QCalendarWidget QSpinBox { color:#1f2937; background:white; selection-background-color:#4f8cff;"
+            "selection-color:white; border:1px solid #c9d3e0; border-radius:8px; }"
+            "QCalendarWidget QMenu { color:#1f2937; background:white; }"
+            "QCalendarWidget QMenu::item:selected { background:#dce8fb; color:#1f2937; }")
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
@@ -376,9 +386,10 @@ class EntryDialog(QDialog):
     """Bearbeiten (entry gegeben) oder Neuanlegen (entry=None)."""
 
     def __init__(self, service: TimeService, day: date, entry: Entry | None = None,
-                 default_start: datetime | None = None, parent=None):
+                 default_start: datetime | None = None, parent=None, lock_times: bool = False):
         super().__init__(parent)
         self.svc, self.day, self.entry = service, day, entry
+        self.lock_times = lock_times
         self.setWindowTitle("Eintrag bearbeiten" if entry else "Eintrag hinzufügen")
         self.setMinimumWidth(520)
         is_pause = bool(entry and entry.kind == PAUSE)
@@ -468,6 +479,14 @@ class EntryDialog(QDialog):
         self.buttons.rejected.connect(self.reject)
         lay = QVBoxLayout(self)
         lay.addLayout(form)
+        if lock_times:   # z. B. aus der Berichte-Vorschau: nur Projekt, Tätigkeit und Notiz ändern
+            for w in (self.start, self.end, self.duration, self.running, self.from_prev, self.anchor_start,
+                      self.anchor_end):
+                w.setEnabled(False)
+            hint = QLabel("Die Zeiten lassen sich hier nicht ändern (dafür den Tag unter „Heute“ öffnen).")
+            hint.setStyleSheet("color:#667")
+            hint.setWordWrap(True)
+            lay.addWidget(hint)
         lay.addWidget(self.preview)
         lay.addWidget(self.buttons)
 

@@ -3,6 +3,15 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.23
+- Outlook-Panel: Über der Terminliste wählt man das Projekt (**Buchen auf**), vorgegeben ist „Meeting“; ein Klick auf
+  einen Termin bucht darauf.
+- Berichte, Vorschau Export: **Doppelklick** ändert Projekt, Tätigkeit und Notiz des Eintrags (die Zeiten sind
+  gesperrt); **Rechtsklick → Springe zu diesem Tag** öffnet den Tag unter „Heute“.
+- Schnellauswahl: **Rechtsklick** auf ein Projekt → **Umhängen auf …** (laufende Zeit wechselt) oder **Neu starten**.
+- Kalender „Datum wählen“: Monat und Jahr sind jetzt auch im aktiven Fenster zu sehen (waren weiß auf weiß).
+- Tests: Fenster werden nach jedem Test geschlossen (behebt einen sporadischen Absturz der Testläufe).
+
 ## 0.1.22
 - Update: Meldet GitHub „Fehler 403“ (Abfragegrenze der Schnittstelle: 60 Abfragen je Stunde und Internetadresse, in
   Firmennetzen mit gemeinsamer Adresse schnell erreicht), fragt WorkPlanner jetzt die normalen Release-Seiten von

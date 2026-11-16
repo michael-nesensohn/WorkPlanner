@@ -9,7 +9,7 @@ from datetime import date, datetime, time, timedelta
 
 from PySide6.QtCore import QEvent, QItemSelectionModel, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QSystemTrayIcon,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox, QSystemTrayIcon,
                                QProgressBar, QPushButton, QScrollArea, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
                                QVBoxLayout, QWidget, QHeaderView)
 
@@ -199,6 +199,8 @@ class MainWindow(QMainWindow):
         self.week = WeekPage(service)
         self.week.open_day.connect(self._open_day_from_week)
         self.report = ReportPage(service)
+        self.report.open_day.connect(self._open_day_from_week)   # Rechtsklick in der Vorschau: Springe zu diesem Tag
+        self.report.entries_changed.connect(lambda: self.refresh())
         self.master = MasterDataPage(service)
         self.tabs.addTab(self.week, "Woche")
         self.tabs.addTab(self.report, "Berichte")
@@ -532,7 +534,13 @@ class MainWindow(QMainWindow):
                 item.widget().hide()  # bis zum eigentlichen Löschen nicht als Geisterbild sichtbar lassen
                 item.widget().deleteLater()
 
+    def _fill_outlook_projects(self) -> None:
+        pid, _ = self.svc.outlook_defaults()
+        self.outlook.set_projects([(self.svc.project_display(p["id"]), p["id"]) for p in
+                                   sorted(self.svc.projects(), key=lambda p: p["name"].casefold())], pid)
+
     def _rebuild_tiles(self) -> None:
+        self._fill_outlook_projects()
         self._clear(self.tiles)
         for s in self._shortcuts:
             s.setEnabled(False)
@@ -548,9 +556,11 @@ class MainWindow(QMainWindow):
                            number_width=number_width)
             b.setCheckable(True)
             b.setProperty("pid", p["id"])
-            b.setToolTip(f"Strg+{i}" if i <= 9 else "")
+            b.setToolTip((f"Strg+{i}  ·  " if i <= 9 else "") + "Rechtsklick: Umhängen")
             b.setStyleSheet(f"QPushButton#tile {{ border-left: 6px solid {p['color']}; }}")
             b.clicked.connect(lambda _=False, pid=p["id"]: self._pick_project(pid))
+            b.setContextMenuPolicy(Qt.CustomContextMenu)
+            b.customContextMenuRequested.connect(lambda pos, pid=p["id"], btn=b: self._tile_menu(pid, btn.mapToGlobal(pos)))
             self.tiles.addWidget(b)
             if i <= 9:
                 sc = QShortcut(QKeySequence(f"Ctrl+{i}"), self)
@@ -563,6 +573,24 @@ class MainWindow(QMainWindow):
             self.tiles.addWidget(hint)
         self.tiles.addStretch(1)
         self._rebuild_chips()
+
+    def _tile_menu(self, pid: int, global_pos) -> None:
+        """Rechtsklick auf ein Projekt der Schnellauswahl: laufende Zeit dorthin umhängen oder neu starten."""
+        run = self.svc.current()
+        name = self.svc.project_display(pid)
+        menu = QMenu(self)
+        hang = menu.addAction(f"⇄ Umhängen auf „{name}“")
+        hang.setEnabled(bool(run and run.kind != PAUSE and run.project_id != pid))
+        hang.setToolTip("Die laufende Zeit wechselt zu diesem Projekt (Notiz und Startzeit bleiben)")
+        start = menu.addAction(f"▶ Neu starten auf „{name}“")
+        chosen = menu.exec(global_pos)
+        if chosen is hang and run is not None:
+            self.sel_project = pid
+            self._switch_to(run, {"project_id": pid, "devops_id": None})
+            self._rebuild_chips()
+        elif chosen is start:
+            self.switch_btn.setChecked(False)
+            self._pick_project(pid)
 
     def _rebuild_chips(self) -> None:
         self._clear(self.chips)
@@ -1027,8 +1055,13 @@ class MainWindow(QMainWindow):
             self.outlook.show_error(text)
 
     def _book_appointment(self, appt) -> None:
-        """Ein Klick auf einen Termin: Eintrag mit Projekt/Tätigkeit der Termin-Voreinstellung (wie beim Import)."""
-        pid, aid = self.svc.outlook_defaults()
+        """Ein Klick auf einen Termin: Eintrag auf das im Outlook-Panel gewählte Projekt (Standard: Meeting) mit der
+        Tätigkeit „Besprechung/Meeting“, falls es sie gibt."""
+        pid = self.outlook.project.currentData()
+        if pid is None:
+            pid, aid = self.svc.outlook_defaults()
+        else:
+            aid = self.svc.outlook_activity_for(pid)
         try:
             plan = self.svc.preview_import([appt], pid, aid)
             gone = [o for old, new in plan.values() for o in removed_entries(old, new)]
