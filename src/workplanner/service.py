@@ -430,17 +430,38 @@ class TimeService:
         return [a for a in self.db.list_activities()
                 if a["project_id"] is None or a["project_id"] == project_id]
 
-    def project_name(self, project_id: int | None) -> str:
-        for p in self.db.list_projects(include_archived=True):
-            if p["id"] == project_id:
-                return p["name"]
-        return ""
+    def _project_at(self, project_id: int | None, day: date | None):
+        """Name und Nummer des Projekts, wie sie am Tag `day` galten (ohne Tag: aktuell)."""
+        if project_id is None:
+            return None
+        if day is not None:
+            v = self.db.project_version_at(project_id, day.isoformat())
+            if v is not None:
+                return v
+        return next((p for p in self.db.list_projects(include_archived=True) if p["id"] == project_id), None)
 
-    def project_number(self, project_id: int | None) -> str:
-        for p in self.db.list_projects(include_archived=True):
-            if p["id"] == project_id:
-                return p["number"]
-        return ""
+    def project_name(self, project_id: int | None, day: date | None = None) -> str:
+        p = self._project_at(project_id, day)
+        return p["name"] if p else ""
+
+    def project_number(self, project_id: int | None, day: date | None = None) -> str:
+        p = self._project_at(project_id, day)
+        return p["number"] if p else ""
+
+    def edit_project(self, project_id: int, name: str, number: str, billable: bool,
+                     since: date | None = None) -> None:
+        """Ändert ein Projekt. Name/Nummer gelten ab `since`; frühere Tage behalten ihre bisherige Anzeige (Berichte,
+        Export). Ohne `since` (rückwirkend) gilt die Änderung für alle Tage. Wirft bei doppeltem Namen eine Ausnahme."""
+        old_name, old_number = self.project_name(project_id), self.project_number(project_id)
+        self.db.update_project(project_id, name=name, number=number, billable=billable)
+        if (name, number) == (old_name, old_number):
+            return
+        if since is None:
+            self.db.clear_project_versions(project_id)
+            return
+        if not self.db.project_versions(project_id):
+            self.db.set_project_version(project_id, "0001-01-01", old_name, old_number)
+        self.db.set_project_version(project_id, since.isoformat(), name, number, drop_later=True)
 
     def find_project(self, name: str = "", number: str = "") -> int | None:
         """Vorhandenes Projekt (auch ausgeblendet) mit gleichem Namen oder gleicher Nummer."""
@@ -529,10 +550,10 @@ class TimeService:
                 return bool(p["billable"])
         return False
 
-    def project_display(self, project_id: int | None) -> str:
-        """„Nummer  Name“ bzw. nur der Name, wenn keine Nummer vergeben ist."""
-        name = self.project_name(project_id)
-        number = self.project_number(project_id)
+    def project_display(self, project_id: int | None, day: date | None = None) -> str:
+        """„Nummer  Name“ bzw. nur der Name, wenn keine Nummer vergeben ist (so, wie es am Tag `day` galt)."""
+        name = self.project_name(project_id, day)
+        number = self.project_number(project_id, day)
         return f"{number}  {name}" if number and name else name
 
     def activity_name(self, activity_id: int | None) -> str:
@@ -542,7 +563,7 @@ class TimeService:
         return ""
 
     def entry_label(self, e: Entry) -> str:
-        return ("Mittagspause" if e.auto_pause else "Pause") if e.kind == PAUSE else (self.project_name(e.project_id) or "–")
+        return ("Mittagspause" if e.auto_pause else "Pause") if e.kind == PAUSE else (self.project_name(e.project_id, e.start.date()) or "–")
 
     # --- Kern: Operation auf einem Tag ausführen ------------------------------
     def _finalize(self, day: date, entries: list[Entry], now: datetime) -> list[Entry]:
@@ -1035,7 +1056,7 @@ class TimeService:
             rows.append({
                 "date": e.start.date(), "start": e.start, "end": e.end or now,
                 "id": e.id, "running": e.running, "kind": e.kind,
-                "project": self.entry_label(e), "project_number": self.project_number(e.project_id),
+                "project": self.entry_label(e), "project_number": self.project_number(e.project_id, e.start.date()),
                 "activity": self.activity_name(e.activity_id), "note": e.note,
                 "billable": e.billable and e.kind == WORK, "devops_id": e.devops_id,
                 "duration": e.duration(now) - lunch,   # ohne den Anteil der Mittagspause

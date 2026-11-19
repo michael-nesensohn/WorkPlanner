@@ -3,6 +3,17 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.26
+- Projektnummer oder Projektname ändern (Einstellungen → Stammdaten → Projekt bearbeiten): Es wird gefragt, **ab wann**
+  die Änderung gilt – ab heute (Standard), ab einem Datum oder für alle Tage. Bereits erfasste Tage davor behalten ihre
+  bisherige Nummer und ihren Namen (Heute, Berichte, Excel- und PDF-Export). Wer die Änderung rückwirkend braucht,
+  wählt „Ab Datum …“ oder „Für alle Tage“.
+- Eintrag bearbeiten: Die Projektauswahl zeigt jetzt „Nummer  Name“, und neben ihr steht ein Stift-Symbol-Knopf (Projekt bearbeiten), mit dem sich
+  Projektnummer und Name des gewählten Projekts ändern lassen – auch bei Projekten, die nicht in der Schnellauswahl stehen
+  (mit der Frage, ab wann die Änderung gilt).
+- Stammdaten → Projekte: Projektnummer und Name stehen jetzt in Spalten untereinander. Neue Sortierung der Liste nach
+  Projektnummer A–Z oder Name A–Z (nur die Anzeige; die Reihenfolge der Schnellauswahl bleibt die eigene).
+
 ## 0.1.25
 - Excel-Stundenzettel (Einstellungen → Stammdaten): neue Option **Vor dem Eintragen eine Sicherung der Datei anlegen**
   mit wählbarem Ordner (Standard `C:\temp\Stundenzettel`). Die Sicherung heißt wie die Excel-Datei und wird bei jedem

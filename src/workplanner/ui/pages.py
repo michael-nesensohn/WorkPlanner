@@ -4,12 +4,13 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date, time, timedelta
 
-from PySide6.QtCore import QDate, QTime, Qt, Signal
-from PySide6.QtGui import QColor, QKeySequence
-from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDateEdit, QDialog, QDialogButtonBox,
+from PySide6.QtCore import QDate, QRect, QTime, Qt, Signal
+from PySide6.QtGui import QColor, QFontMetrics, QKeySequence
+from PySide6.QtWidgets import (QApplication, QCheckBox, QColorDialog, QComboBox, QDateEdit, QDialog, QDialogButtonBox,
                                QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QKeySequenceEdit, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton,
-                               QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QTimeEdit, QVBoxLayout, QWidget)
+                               QSpinBox, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableWidget,
+                               QTableWidgetItem, QTabWidget, QTimeEdit, QVBoxLayout, QWidget)
 
 from .. import autostart
 from ..export import ALL_COLUMNS, COLUMNS, export_excel
@@ -65,6 +66,49 @@ class ProjectDialog(QDialog):
         form.addRow(bb)
 
 
+ROLE_STAR, ROLE_NUMBER, ROLE_NAME, ROLE_TAG = (Qt.UserRole + i for i in range(1, 5))
+
+
+class ProjectListDelegate(QStyledItemDelegate):
+    """Zeichnet die Projektliste in Spalten: Stern, Nummer, Name und Hinweis stehen jeweils untereinander."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.number_width = 0
+        self.name_width = 0
+
+    def set_widths(self, font, items: list[tuple[str, str]]) -> None:
+        fm = QFontMetrics(font)
+        self.number_width = max((fm.horizontalAdvance(n) for n, _ in items), default=0)
+        self.name_width = max((fm.horizontalAdvance(t) for _, t in items), default=0)
+
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option, index)
+        size.setHeight(max(size.height(), QFontMetrics(option.font).height() + 8))
+        return size
+
+    def paint(self, painter, option, index):
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        opt.text = ""
+        style = opt.widget.style() if opt.widget else QApplication.style()
+        style.drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
+        color = index.data(Qt.ForegroundRole)
+        painter.save()
+        painter.setPen(color.color() if color is not None else QColor("#1f2937"))
+        rect, gap = opt.rect.adjusted(6, 0, -6, 0), 14
+        fm = QFontMetrics(opt.font)
+        x = rect.left()
+        for text, width in ((index.data(ROLE_STAR), fm.horizontalAdvance("★") + gap),
+                            (index.data(ROLE_NUMBER), self.number_width + gap),
+                            (index.data(ROLE_NAME), self.name_width + gap),
+                            (index.data(ROLE_TAG), 0)):
+            painter.drawText(QRect(x, rect.top(), max(width, 1) if width else rect.right() - x, rect.height()),
+                             Qt.AlignVCenter | Qt.AlignLeft, text or "")
+            x += width
+        painter.restore()
+
+
 class MasterDataPage(QWidget):
     changed = Signal()
 
@@ -72,10 +116,22 @@ class MasterDataPage(QWidget):
         super().__init__()
         self.svc = service
         self.projects = QListWidget()
+        self.project_delegate = ProjectListDelegate(self.projects)
+        self.projects.setItemDelegate(self.project_delegate)
+        self.project_sort = QComboBox()
+        self.project_sort.addItem("Eigene Reihenfolge (▲ ▼)", "manual")
+        self.project_sort.addItem("Projektnummer A–Z", "number")
+        self.project_sort.addItem("Name A–Z", "name")
+        self.project_sort.setToolTip("Nur die Anzeige dieser Liste; die Reihenfolge der Schnellauswahl bleibt Ihre eigene.")
+        self.project_sort.currentIndexChanged.connect(lambda _: self.reload())
         self.activities = QListWidget()
 
         pbox = QGroupBox("Projekte (★ = in der Schnellauswahl)")
         pl = QVBoxLayout(pbox)
+        sort_row = QHBoxLayout()
+        sort_row.addWidget(QLabel("Sortierung"))
+        sort_row.addWidget(self.project_sort, 1)
+        pl.addLayout(sort_row)
         pl.addWidget(self.projects)
         pl.addLayout(self._buttons([("Neu", self._new_project), ("Bearbeiten", self._edit_project),
                                     ("★ Favorit", self._toggle_favorite), ("Farbe", self._color_project),
@@ -277,13 +333,26 @@ class MasterDataPage(QWidget):
         return row
 
     def reload(self) -> None:
+        keep = self._sel(self.projects)
         self.projects.clear()
-        for p in self.svc.projects():
-            it = QListWidgetItem(("★ " if p["favorite"] else "☆ ") + self.svc.project_display(p["id"])
-                                 + ("   [verrechenbar]" if p["billable"] else ""))
+        plist = list(self.svc.projects())
+        mode = self.project_sort.currentData()
+        if mode == "number":   # Projekte ohne Nummer ans Ende
+            plist.sort(key=lambda p: (not p["number"], p["number"].casefold(), p["name"].casefold()))
+        elif mode == "name":
+            plist.sort(key=lambda p: p["name"].casefold())
+        self.project_delegate.set_widths(self.projects.font(), [(p["number"], p["name"]) for p in plist])
+        for p in plist:
+            it = QListWidgetItem(self.svc.project_display(p["id"]))   # Text für Suche/Tests; gezeichnet wird per Delegate
             it.setData(256, p["id"])
+            it.setData(ROLE_STAR, "★" if p["favorite"] else "☆")
+            it.setData(ROLE_NUMBER, p["number"])
+            it.setData(ROLE_NAME, p["name"])
+            it.setData(ROLE_TAG, "[verrechenbar]" if p["billable"] else "")
             it.setForeground(QColor(p["color"]))
             self.projects.addItem(it)
+            if p["id"] == keep:
+                self.projects.setCurrentItem(it)
         self.activities.clear()
         for a in self.svc.db.list_activities():
             scope = self.svc.project_name(a["project_id"]) if a["project_id"] else "alle Projekte"
@@ -458,15 +527,8 @@ class MasterDataPage(QWidget):
         pid = self._sel(self.projects)
         if pid is None:
             return
-        dlg = ProjectDialog(self.svc.project_name(pid), self.svc.project_number(pid),
-                            self.svc.project_billable(pid), self)
-        if dlg.exec() and dlg.name.text().strip():
-            try:
-                self.svc.db.update_project(pid, name=dlg.name.text().strip(),
-                                           number=dlg.number.text().strip(),
-                                           billable=dlg.billable.isChecked())
-            except Exception:
-                QMessageBox.warning(self, "Projekt", "Ein Projekt mit diesem Namen existiert bereits.")
+        from .dialogs import edit_project_dialog
+        if edit_project_dialog(self, self.svc, pid):
             self._done()
 
     def _toggle_favorite(self) -> None:
@@ -489,6 +551,13 @@ class MasterDataPage(QWidget):
         ids = [p["id"] for p in self.svc.projects()]
         pid = self._sel(self.projects)
         if pid is None:
+            return
+        if self.project_sort.currentData() != "manual":   # Verschieben gilt für die eigene Reihenfolge
+            self.project_sort.blockSignals(True)
+            self.project_sort.setCurrentIndex(0)
+            self.project_sort.blockSignals(False)
+            self.reload()
+            self.projects.setCurrentRow(ids.index(pid))
             return
         i = ids.index(pid)
         j = i + step

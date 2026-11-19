@@ -52,6 +52,11 @@ CREATE TABLE IF NOT EXISTS outlook_imported (key TEXT PRIMARY KEY);
 -- schon in einen Excel-Stundenzettel eingetragene Stunden je Datei, Tag und Projekt (gegen doppeltes Eintragen)
 CREATE TABLE IF NOT EXISTS excel_exported (file TEXT NOT NULL, day TEXT NOT NULL, key TEXT NOT NULL,
                                            hours REAL NOT NULL, PRIMARY KEY (file, day, key));
+-- Name und Nummer eines Projekts mit Gültigkeit ab einem Tag (damit eine Änderung frühere Tage nicht verändert);
+-- die erste Zeile (valid_from 0001-01-01) hält die Werte vor der ersten Änderung
+CREATE TABLE IF NOT EXISTS project_versions (project_id INTEGER NOT NULL, valid_from TEXT NOT NULL,
+                                             name TEXT NOT NULL, number TEXT NOT NULL DEFAULT '',
+                                             PRIMARY KEY (project_id, valid_from));
 CREATE TABLE IF NOT EXISTS day_flags (day TEXT PRIMARY KEY, pause_disabled INTEGER NOT NULL DEFAULT 0);
 -- Tage, an denen eine Aufgabe über Mitternacht lief (um 00:00 getrennt): bis zur Bestätigung rot angezeigt
 CREATE TABLE IF NOT EXISTS midnight_days (day TEXT PRIMARY KEY, confirmed INTEGER NOT NULL DEFAULT 0);
@@ -156,6 +161,29 @@ class Database:
         self.conn.execute(f"UPDATE projects SET {sql} WHERE id = ?",
                           [int(fields[c]) if isinstance(fields[c], bool) else fields[c] for c in cols]
                           + [project_id])
+        self.conn.commit()
+
+    def project_version_at(self, project_id: int, day: str) -> sqlite3.Row | None:
+        """Gültiger Name/Nummer am Tag `day` (ISO) oder None, wenn es keine Versionen gibt."""
+        return self.conn.execute(
+            "SELECT name, number FROM project_versions WHERE project_id = ? AND valid_from <= ? "
+            "ORDER BY valid_from DESC LIMIT 1", (project_id, day)).fetchone()
+
+    def project_versions(self, project_id: int) -> list[sqlite3.Row]:
+        return self.conn.execute("SELECT valid_from, name, number FROM project_versions WHERE project_id = ? "
+                                 "ORDER BY valid_from", (project_id,)).fetchall()
+
+    def set_project_version(self, project_id: int, valid_from: str, name: str, number: str,
+                            drop_later: bool = False) -> None:
+        if drop_later:
+            self.conn.execute("DELETE FROM project_versions WHERE project_id = ? AND valid_from > ?",
+                              (project_id, valid_from))
+        self.conn.execute("INSERT OR REPLACE INTO project_versions VALUES (?, ?, ?, ?)",
+                          (project_id, valid_from, name, number))
+        self.conn.commit()
+
+    def clear_project_versions(self, project_id: int) -> None:
+        self.conn.execute("DELETE FROM project_versions WHERE project_id = ?", (project_id,))
         self.conn.commit()
 
     def list_projects(self, include_archived: bool = False) -> list[sqlite3.Row]:

@@ -1390,7 +1390,7 @@ class MainWindow(QMainWindow):
             lunch = self.svc.lunch_overlap(e, windows[e.start.date()], now)
             vals = [fmt_time(e.start), fmt_time(e.end), fmt_duration(e.duration(now) - lunch),
                     "✓" if e.billable and e.kind != PAUSE else "",
-                    self.svc.entry_label(e) if e.kind == PAUSE else (self.svc.project_display(e.project_id) or "–"),
+                    self.svc.entry_label(e) if e.kind == PAUSE else (self.svc.project_display(e.project_id, e.start.date()) or "–"),
                     self.svc.activity_name(e.activity_id), (f"#{e.devops_id}" + (f" → Task #{e.devops_task_id}" if e.devops_task_id else "")) if e.devops_id else "",
                     note_one_line(e.note)]
             for c, v in enumerate(vals):

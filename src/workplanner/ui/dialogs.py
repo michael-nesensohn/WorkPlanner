@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime, time, timedelta
 
-from PySide6.QtCore import QDate, Qt, QTime, Signal
+from PySide6.QtCore import QDate, QSize, Qt, QTime, Signal
 from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (QCalendarWidget, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
                                QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QCalendarWidget, QCheckBox, QComboBox, QDialog, Q
 
 from ..service import TimeService
 from .feature_panel import group_items
+from .icons import line_icon
 from ..timeline import PAUSE, PUSH, SHORTEN, SPLIT, TimelineError, Entry, changed_times, removed_entries
 
 
@@ -118,6 +119,52 @@ def ask_overlap(parent, svc: TimeService, entry_id: int, changes: dict) -> str |
     box.exec()
     clicked = box.clickedButton()
     return PUSH if clicked is keep else SHORTEN if clicked is cut else SPLIT if clicked is split else None
+
+
+def ask_project_since(parent, service: TimeService):
+    """Ab wann gilt die neue Nummer/der neue Name? Standard: ab heute, bereits erfasste Tage bleiben unverändert.
+    Rückgabe: Datum, None (für alle Tage) oder "cancel"."""
+    box = QMessageBox(parent)
+    box.setWindowTitle("Änderung ab wann?")
+    box.setText("Ab wann soll die neue Projektnummer bzw. der neue Name gelten?\n\n"
+                "Bereits erfasste Tage davor behalten ihre bisherige Anzeige (Berichte, Export).")
+    today = box.addButton("Ab heute (empfohlen)", QMessageBox.AcceptRole)
+    pick = box.addButton("Ab Datum …", QMessageBox.ActionRole)
+    every = box.addButton("Für alle Tage", QMessageBox.DestructiveRole)
+    box.addButton("Abbrechen", QMessageBox.RejectRole)
+    box.exec()
+    clicked = box.clickedButton()
+    if clicked is today:
+        return service.now().date()
+    if clicked is every:
+        return None
+    if clicked is pick:
+        dlg = CalendarDialog(service.now().date(), parent)
+        if dlg.exec():
+            return dlg.selected()
+    return "cancel"
+
+
+def edit_project_dialog(parent, service: TimeService, project_id: int) -> bool:
+    """Projekt bearbeiten (Nummer, Name, verrechenbar); bei geänderter Nummer/Name wird gefragt, ab wann das gilt.
+    True, wenn etwas gespeichert wurde."""
+    from .pages import ProjectDialog
+    dlg = ProjectDialog(service.project_name(project_id), service.project_number(project_id),
+                        service.project_billable(project_id), parent)
+    if not (dlg.exec() and dlg.name.text().strip()):
+        return False
+    name, number = dlg.name.text().strip(), dlg.number.text().strip()
+    since = service.now().date()
+    if (name, number) != (service.project_name(project_id), service.project_number(project_id)):
+        since = ask_project_since(parent, service)
+        if since == "cancel":
+            return False
+    try:
+        service.edit_project(project_id, name, number, dlg.billable.isChecked(), since)
+    except Exception:
+        QMessageBox.warning(parent, "Projekt", "Ein Projekt mit diesem Namen existiert bereits.")
+        return False
+    return True
 
 
 class MergeDialog(QDialog):
@@ -397,11 +444,15 @@ class EntryDialog(QDialog):
         self.project = QComboBox()
         # Immer ein Projekt (kein „–“): ohne Angabe gilt „Allgemein“. Alphabetisch sortiert.
         default_pid = service.default_project_id()   # zuerst: legt „Allgemein“ bei Bedarf an, damit es in der Liste steht
-        projects = sorted(service.projects(), key=lambda p: p["name"].casefold())
-        for p in projects:
-            self.project.addItem(p["name"], p["id"])
-        if entry and entry.project_id is not None and self.project.findData(entry.project_id) < 0:
-            self.project.insertItem(0, service.project_name(entry.project_id), entry.project_id)   # z. B. archiviert
+        self._fill_projects(entry.project_id if entry else None)
+        self.edit_project_btn = QPushButton()
+        self.edit_project_btn.setIcon(line_icon("edit"))
+        self.edit_project_btn.setIconSize(QSize(18, 18))
+        self.edit_project_btn.setFixedSize(34, 30)
+        self.edit_project_btn.setAccessibleName("Projekt bearbeiten")
+        self.edit_project_btn.setToolTip("Projekt bearbeiten: Nummer und Name ändern (auch wenn es nicht in der "
+                                         "Schnellauswahl steht)")
+        self.edit_project_btn.clicked.connect(self._edit_project)
         self.activity = QComboBox()
         self.note = NoteEdit(entry.note if entry else "", "Was wurde gemacht? (mehrere Zeilen möglich)")
         self.devops_id = self._build_devops_combo(entry.devops_id if entry else None)
@@ -410,7 +461,9 @@ class EntryDialog(QDialog):
         for w in (self.start, self.end):
             w.setDisplayFormat("HH:mm")
             w.setFixedWidth(72)   # „HH:mm“ braucht nicht mehr Platz
-        self.from_prev = QPushButton("⇤ Ende des Vorgängers")
+        self.from_prev = QPushButton("Ende des Vorgängers")
+        self.from_prev.setIcon(line_icon("to_previous"))
+        self.from_prev.setIconSize(QSize(16, 16))
         self.from_prev.setToolTip("Start auf das Ende des vorherigen Eintrags setzen (lückenlos anschließen)")
         self.from_prev.clicked.connect(self._start_at_previous_end)
         self.billable = QCheckBox("verrechenbar")
@@ -457,7 +510,10 @@ class EntryDialog(QDialog):
 
         form = QFormLayout()
         if not is_pause:
-            form.addRow("Projekt", self.project)
+            prow = QHBoxLayout()
+            prow.addWidget(self.project, 1)
+            prow.addWidget(self.edit_project_btn)
+            form.addRow("Projekt", prow)
             form.addRow("Tätigkeit", self.activity)
             form.addRow("Notiz", self.note)
             if service.devops_enabled:
@@ -517,6 +573,26 @@ class EntryDialog(QDialog):
             self.preview.setText("<span style='color:#b35c00'>Es gibt keinen vorherigen Eintrag.</span>")
             return
         self.start.setTime(_qtime(prev.end))
+
+    def _fill_projects(self, current: int | None) -> None:
+        """Alle Projekte alphabetisch mit Nummer („Nummer  Name“); das aktuelle auch, wenn es ausgeblendet ist."""
+        self.project.blockSignals(True)
+        self.project.clear()
+        for p in sorted(self.svc.projects(), key=lambda p: p["name"].casefold()):
+            self.project.addItem(self.svc.project_display(p["id"]), p["id"])
+        if current is not None and self.project.findData(current) < 0:
+            self.project.insertItem(0, self.svc.project_display(current), current)   # z. B. archiviert
+        self.project.blockSignals(False)
+
+    def _edit_project(self) -> None:
+        pid = self.project.currentData()
+        if pid is None or not edit_project_dialog(self, self.svc, pid):
+            return
+        self._fill_projects(pid)
+        self.project.blockSignals(True)
+        self.project.setCurrentIndex(max(0, self.project.findData(pid)))
+        self.project.blockSignals(False)
+        self._update()
 
     def _project_changed(self, _=None) -> None:
         self._fill_activities(None)

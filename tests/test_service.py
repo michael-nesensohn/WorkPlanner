@@ -212,6 +212,44 @@ def test_report_rows_filter_by_project(env):
     assert only_b[0]["duration"] == timedelta(hours=1)
 
 
+def _two_days(svc, clock, a, act):
+    svc.start_task(a, act)
+    clock.set(9)
+    svc.stop()
+    clock.t = datetime(2026, 11, 3, 8, 0)
+    svc.start_task(a, act)
+    clock.set(9)
+    clock.t = datetime(2026, 11, 3, 9, 0)
+    svc.stop()
+
+
+def test_project_change_from_date_keeps_earlier_days(env):
+    svc, clock, a, b, act = env
+    _two_days(svc, clock, a, act)
+    svc.edit_project(a, "A neu", "42", False, since=date(2026, 11, 3))
+    rows_ = svc.report_rows(DAY, date(2026, 11, 3))
+    assert [(r["date"].day, r["project"], r["project_number"]) for r in rows_] == \
+           [(2, "A", ""), (3, "A neu", "42")]
+    assert svc.project_display(a) == "42  A neu"            # aktuell: neue Werte
+    assert svc.project_display(a, DAY) == "A"
+
+
+def test_project_change_for_all_days_is_retroactive(env):
+    svc, clock, a, b, act = env
+    _two_days(svc, clock, a, act)
+    svc.edit_project(a, "A neu", "7", False, since=date(2026, 11, 3))
+    svc.edit_project(a, "A final", "9", False, since=None)
+    assert {(r["project"], r["project_number"]) for r in svc.report_rows(DAY, date(2026, 11, 3))} == {("A final", "9")}
+
+
+def test_project_change_back_dated_replaces_later_versions(env):
+    svc, clock, a, b, act = env
+    _two_days(svc, clock, a, act)
+    svc.edit_project(a, "A2", "1", False, since=date(2026, 11, 3))
+    svc.edit_project(a, "A3", "2", False, since=date(2026, 11, 2))   # zurück bis 2.11.
+    assert {(r["project"], r["project_number"]) for r in svc.report_rows(DAY, date(2026, 11, 3))} == {("A3", "2")}
+
+
 def test_stale_running_entry_closed_at_midnight(env):
     svc, clock, a, b, act = env
     svc.start_task(a, act)

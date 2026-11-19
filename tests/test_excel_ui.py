@@ -667,3 +667,47 @@ def test_backup_settings_are_shown_and_saved(qapp):
     page.excel_backup_path.setText(r"D:\Sicherung")
     page.excel_backup_path.editingFinished.emit()
     assert svc.excel_backup and svc.excel_backup_path == r"D:\Sicherung" and page.excel_backup_path.isEnabled()
+
+
+def test_project_list_sortable_by_number_and_name(qapp):
+    from workplanner.ui.pages import ROLE_NAME, MasterDataPage
+    db = Database()
+    for number, name in [("E2", "Zeta"), ("", "Alpha"), ("A1", "Mitte")]:
+        db.add_project(name, number=number)
+    page = MasterDataPage(TimeService(db, Clock()))
+    page.reload()
+
+    def names():
+        return [page.projects.item(i).data(ROLE_NAME) for i in range(page.projects.count())]
+
+    page.project_sort.setCurrentIndex(1)   # Projektnummer A–Z, ohne Nummer zuletzt
+    assert names() == ["Mitte", "Zeta", "Alpha"]
+    page.project_sort.setCurrentIndex(2)   # Name A–Z
+    assert names() == ["Alpha", "Mitte", "Zeta"]
+    page.close()
+
+
+def test_entry_dialog_edits_project_name_and_number(qapp, monkeypatch):
+    from workplanner.ui import dialogs
+    from workplanner.ui.dialogs import EntryDialog
+    db = Database()
+    pid = db.add_project("Alt", number="1", favorite=False)   # nicht in der Schnellauswahl
+    svc = TimeService(db, Clock())
+    dlg = EntryDialog(svc, date(2026, 11, 2))
+    assert dlg.project.findData(pid) >= 0 and "1  Alt" in dlg.project.itemText(dlg.project.findData(pid))
+    dlg.project.setCurrentIndex(dlg.project.findData(pid))
+
+    class Fake:
+        def __init__(self, *a, **k): pass
+        def exec(self): return True
+        name = type("L", (), {"text": lambda s: "Neu"})()
+        number = type("L", (), {"text": lambda s: "2"})()
+        billable = type("C", (), {"isChecked": lambda s: False})()
+
+    import workplanner.ui.pages as pages
+    monkeypatch.setattr(pages, "ProjectDialog", Fake)
+    monkeypatch.setattr(dialogs, "ask_project_since", lambda parent, service: date(2026, 11, 2))
+    dlg._edit_project()
+    assert svc.project_display(pid) == "2  Neu"
+    assert dlg.project.currentData() == pid and dlg.project.currentText() == "2  Neu"
+    dlg.close()
