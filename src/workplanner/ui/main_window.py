@@ -112,6 +112,8 @@ QPushButton#soft:pressed { background: #dce8fb; }
 QPushButton#soft:checked { background: #4f8cff; border-color: #4f8cff; color: white; }
 QPushButton#soft:disabled { color: #9aa6b6; }
 QTableWidget { gridline-color: #e4e9f0; alternate-background-color: #fafbfd; }
+QSplitter::handle:horizontal { background: transparent; width: 6px; }
+QSplitter::handle:horizontal:hover { background: #dce8fb; }
 """
 
 
@@ -437,6 +439,8 @@ class MainWindow(QMainWindow):
         # Breite von DevOps-Features und Schnellauswahl per Maus verschiebbar; wird gespeichert
         self.body = QSplitter(Qt.Horizontal)
         self.body.setChildrenCollapsible(False)
+        # Outlook und DevOps dürfen ganz zugehen, damit die Tabelle (Notiz) breiter gezogen werden kann; mit dem Trenner
+        # holt man sie zurück
         self.outlook = OutlookPanel()   # Termine des angezeigten Tages; Klick = Eintrag
         self.outlook.appointment_chosen.connect(self._book_appointment)
         for w in (left_box, self.outlook, self.features, side_box):  # Outlook | DevOps-Features | Schnellauswahl
@@ -444,6 +448,8 @@ class MainWindow(QMainWindow):
         self.body.setStretchFactor(0, 1)
         for i in (1, 2, 3):
             self.body.setStretchFactor(i, 0)
+        self.body.setCollapsible(1, True)
+        self.body.setCollapsible(2, True)
         self._split_saver = QTimer(self, singleShot=True, interval=400)
         self._split_saver.timeout.connect(self._save_split)
         self.body.splitterMoved.connect(lambda *_: self._split_saver.start())
@@ -527,9 +533,7 @@ class MainWindow(QMainWindow):
             hh.resizeSection(col, width)
         hh.setSectionResizeMode(7, QHeaderView.Interactive)   # Notiz: füllt den Rest, per Maus aber veränderbar
         self._note_fitting = False
-        self._note_width = self.svc.note_col_width   # 0 = automatisch (Rest der Breite)
         hh.sectionResized.connect(self._note_resized)
-        hh.sectionHandleDoubleClicked.connect(self._note_auto)
         self.table.setWordWrap(True)  # lange Notizen werden umgebrochen, die Zeile wird entsprechend höher
         self.table.setTextElideMode(Qt.ElideNone)
         hh.sectionResized.connect(lambda *_: self.table.resizeRowsToContents())
@@ -549,6 +553,7 @@ class MainWindow(QMainWindow):
         self.plan.edit_requested.connect(self._plan_edit)
         self.plan.gap_requested.connect(self._add_in_gap)
         self.plan.retimed.connect(self._retime)
+        self.plan.widen_requested.connect(self._move_splitter)
         self.day_stack = QStackedWidget()
         self.day_stack.addWidget(self.table)
         self.day_stack.addWidget(self.plan)
@@ -865,11 +870,11 @@ class MainWindow(QMainWindow):
         self.plan.canvas.update()
 
     def _fit_note_column(self) -> None:
-        """Notiz-Spalte: ohne eigene Breite füllt sie den Rest der Tabelle, sonst gilt die gezogene Breite."""
+        """Notiz-Spalte: füllt den Rest der Tabelle (die Breite der Tabelle bestimmt der Trenner zu Outlook)."""
         hh = self.table.horizontalHeader()
         others = sum(hh.sectionSize(c) for c in range(self.table.columnCount())
                      if c != 7 and not self.table.isColumnHidden(c))
-        width = self._note_width or max(120, self.table.viewport().width() - others)
+        width = max(120, self.table.viewport().width() - others)
         if hh.sectionSize(7) != width:
             self._note_fitting = True
             try:
@@ -877,17 +882,35 @@ class MainWindow(QMainWindow):
             finally:
                 self._note_fitting = False
 
-    def _note_resized(self, column: int, _old: int, new: int) -> None:
-        """Die Notiz-Spalte wurde mit der Maus verändert: Breite merken (Doppelklick auf den Rand: wieder automatisch)."""
+    def _note_resized(self, column: int, old: int, new: int) -> None:
+        """Rand der Notiz-Spalte mit der Maus gezogen: die Tabelle wird breiter bzw. schmaler, die Spalten rechts
+        (Outlook, DevOps, Schnellauswahl) rücken mit."""
         if column == 7 and not self._note_fitting:
-            self._note_width = new
-            self.svc.set_note_col_width(new)
+            self._move_splitter(new - old)
 
-    def _note_auto(self, column: int) -> None:
-        if column == 7:
-            self._note_width = 0
-            self.svc.set_note_col_width(0)
-            self._fit_note_column()
+    def _move_splitter(self, delta: int) -> None:
+        """Linke Seite (Tabelle bzw. Tagesplan) um `delta` Pixel breiter (+) oder schmaler (−) machen. Was fehlt, geht
+        von den rechten Spalten ab: zuerst Outlook, dann DevOps (beide dürfen ganz zugehen), zuletzt die
+        Schnellauswahl (nie unter ihre Mindestbreite). Was frei wird, bekommt die erste sichtbare rechte Spalte."""
+        if not delta:
+            return
+        sizes = self.body.sizes()
+        if delta > 0:
+            take = delta
+            for i in (1, 2, 3):
+                floor = self.body.widget(i).minimumSizeHint().width() if i == 3 else 0
+                got = min(max(0, sizes[i] - floor), take)
+                sizes[i] -= got
+                take -= got
+            sizes[0] += delta - take
+        else:
+            target = next((i for i in (1, 2, 3) if not self.body.widget(i).isHidden()), None)
+            if target is None:
+                return
+            sizes[0] += delta
+            sizes[target] -= delta
+        self.body.setSizes(sizes)
+        self._split_saver.start()
 
     def _set_view(self, view: str) -> None:
         self.svc.set_day_view(view)

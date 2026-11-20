@@ -3,6 +3,13 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.28
+- **Notiz-Spalte und Tagesplan breiter ziehen**: Zieht man den rechten Rand der Notiz-Spalte (Liste) oder den schmalen
+  Griff am rechten Rand des Tagesplans, wird die linke Seite breiter und die rechten Spalten rücken mit: zuerst Outlook,
+  dann DevOps (beide dürfen ganz zugehen), zuletzt die Schnellauswahl (bleibt lesbar). Das Fenster muss dafür nicht
+  größer werden. Schmaler ziehen gibt den Platz zurück (auch an eine zugegangene Outlook-Spalte). Der Trenner ist
+  zusätzlich besser sichtbar. Die Notiz-Spalte füllt weiter immer den Rest der Tabelle.
+
 ## 0.1.27
 - **Löschen verschiebt nichts mehr**: Wird ein Eintrag (oder mehrere) gelöscht, bleiben alle anderen Einträge genau,
   wo sie sind. Es entsteht eine Lücke statt dass die Folgeeinträge nachrutschen.

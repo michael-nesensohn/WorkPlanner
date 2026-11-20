@@ -19,6 +19,7 @@ from . import theme
 SNAP_MIN = 15          # Rasterung in Minuten
 PX_PER_MIN = 1.15      # Höhe: 69 Pixel je Stunde
 AXIS_W = 58
+GRIP_W = 7             # Breite des Griffs am rechten Rand (Plan breiter/schmaler ziehen)
 EDGE = 7               # Pixel an Ober-/Unterkante eines Blocks, die als Griff zum Ändern gelten
 DRAG_START = 4         # erst ab so vielen Pixeln Bewegung wird gezogen (ein Klick ändert nichts)
 
@@ -114,10 +115,12 @@ class _Canvas(QWidget):
     edit_requested = Signal(int)
     gap_requested = Signal(object, object)  # von, bis (datetime)
     retimed = Signal(int, object, object)  # ID, neuer Start, neues Ende (None = läuft weiter)
+    widen_requested = Signal(int)          # Pixel: Plan breiter (+) / schmaler (−) machen (Griff am rechten Rand)
 
     def __init__(self, service: TimeService):
         super().__init__()
         self.svc = service
+        self._grip_x: float | None = None
         self.day = date.today()
         self.entries: list[Entry] = []
         self.now = datetime.now()
@@ -301,6 +304,10 @@ class _Canvas(QWidget):
             p.setPen(Qt.NoPen)
             p.drawEllipse(QPointF(AXIS_W, y), 4, 4)
 
+        p.setPen(QPen(COL.grid_hour, 2, Qt.SolidLine, Qt.RoundCap))                    # Griff: Plan breiter/schmaler
+        mid, gx = self.height() / 2, self.width() - 3
+        p.drawLine(QPointF(gx, mid - 14), QPointF(gx, mid + 14))
+
         if self.drag and self.drag["active"]:                                          # Hinweis beim Ziehen
             d = self.drag
             text = f"{_fmt(d['start'])}–{'läuft' if d['end'] is None else _fmt(d['end'])}"
@@ -334,8 +341,15 @@ class _Canvas(QWidget):
         return super().event(ev)
 
     # --- Maus ----------------------------------------------------------------------------------
+    def _on_grip(self, pos: QPointF) -> bool:
+        """Schmaler Streifen am rechten Rand: ziehen macht den Plan breiter oder schmaler (verschiebt den Trenner)."""
+        return pos.x() >= self.width() - GRIP_W
+
     def mousePressEvent(self, ev) -> None:
         if ev.button() != Qt.LeftButton:
+            return
+        if self._on_grip(ev.position()):
+            self._grip_x = ev.globalPosition().x()
             return
         hit, zone = self._hit(ev.position())
         if isinstance(hit, Entry):
@@ -356,7 +370,15 @@ class _Canvas(QWidget):
             self.update()
 
     def mouseMoveEvent(self, ev) -> None:
+        if self._grip_x is not None:
+            x = ev.globalPosition().x()
+            self.widen_requested.emit(int(round(x - self._grip_x)))
+            self._grip_x = x
+            return
         d = self.drag
+        if d is None and self._on_grip(ev.position()):
+            self.setCursor(Qt.SplitHCursor)
+            return
         if d is None:
             hit, zone = self._hit(ev.position())
             self.setCursor(Qt.SizeVerCursor if zone in ("top", "bot") else
@@ -390,6 +412,10 @@ class _Canvas(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, ev) -> None:
+        if self._grip_x is not None:
+            self._grip_x = None
+            self.setCursor(Qt.ArrowCursor)
+            return
         d, self.drag = self.drag, None
         self.setCursor(Qt.ArrowCursor)
         if d is None or not d["active"]:
@@ -415,6 +441,7 @@ class DayPlan(QScrollArea):
     edit_requested = Signal(int)
     gap_requested = Signal(object, object)
     retimed = Signal(int, object, object)
+    widen_requested = Signal(int)
 
     def __init__(self, service: TimeService):
         super().__init__()
@@ -425,7 +452,7 @@ class DayPlan(QScrollArea):
         self.setStyleSheet("QScrollArea{background:#ffffff;border:1px solid #dde3ee;border-radius:10px}")
         self.setToolTip("Block ziehen: verschieben · Kante ziehen: Start/Ende ändern (15-Minuten-Raster) · "
                         "Doppelklick: bearbeiten, auf eine Lücke: Eintrag anlegen")
-        for name in ("selection_changed", "edit_requested", "gap_requested", "retimed"):
+        for name in ("selection_changed", "edit_requested", "gap_requested", "retimed", "widen_requested"):
             getattr(self.canvas, name).connect(getattr(self, name))
         self._shown_day: date | None = None
 

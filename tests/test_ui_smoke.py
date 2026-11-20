@@ -1389,22 +1389,44 @@ def test_settings_page_does_not_force_a_tall_window(qapp):
     page.close()
 
 
-def test_note_column_is_resizable_and_remembers_width(qapp):
+def test_dragging_the_note_column_edge_moves_the_splitter_and_right_columns(qapp):
     db = Database()
     seed(db)
-    svc = TimeService(db, Clock(9, 0))
-    w = MainWindow(svc)
-    w.resize(1100, 700)
+    w = MainWindow(TimeService(db, Clock(9, 0)))
+    w.resize(1400, 700)
     w.show()
-    w.refresh()
-    hh = w.table.horizontalHeader()
-    assert hh.sectionResizeMode(7) == hh.ResizeMode.Interactive
-    auto = hh.sectionSize(7)
-    hh.resizeSection(7, auto + 80)                      # wie mit der Maus gezogen
-    assert svc.note_col_width == auto + 80 and w._note_width == auto + 80
-    w.resize(1000, 700)                                 # Fenstergröße ändert die gezogene Breite nicht
     qapp.processEvents()
-    assert hh.sectionSize(7) == auto + 80
-    w._note_auto(7)                                     # Doppelklick auf den Rand: wieder automatisch
-    assert svc.note_col_width == 0
+    w._restore_split()
+    qapp.processEvents()
+    left, right = w.body.sizes()[0], sum(w.body.sizes()[1:])
+    hh = w.table.horizontalHeader()
+    note = hh.sectionSize(7)
+    hh.resizeSection(7, note + 60)                      # wie mit der Maus am rechten Rand der Notiz gezogen
+    qapp.processEvents()
+    assert abs(w.body.sizes()[0] - (left + 60)) <= 2 and abs(sum(w.body.sizes()[1:]) - (right - 60)) <= 2   # rechte Spalten rücken mit
+    assert abs(hh.sectionSize(7) - (note + 60)) <= 2                                # Notiz füllt weiter den Rest
+    hh.resizeSection(7, note - 100)                     # schmaler: die rechten Spalten bekommen den Platz
+    qapp.processEvents()
+    assert w.body.sizes()[0] <= left + 60 - 100 + 160   # (die Kopfzeile der linken Seite begrenzt, wie weit es schmaler geht)
+    before = list(w.body.sizes())
+    w._move_splitter(10 ** 5)                           # sehr breit: Outlook und DevOps gehen zu, die Schnellauswahl bleibt
+    sizes = w.body.sizes()
+    assert sizes[1] == 0 and sizes[2] == 0 and sizes[3] >= w.body.widget(3).minimumSizeHint().width()
+    w._move_splitter(-200)                              # wieder schmaler: Outlook kommt zurück
+    assert w.body.sizes()[1] > 0
+    w.close()
+
+
+def test_plan_edge_grip_requests_a_wider_plan(qapp):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    w, svc, c, d = _plan_window(qapp)
+    got = []
+    w.plan.widen_requested.connect(got.append)
+    y = int(c.height() / 2)
+    x = c.width() - 3                                   # Griff am rechten Rand
+    QTest.mousePress(c, Qt.LeftButton, Qt.NoModifier, QPoint(x, y))
+    QTest.mouseMove(c, QPoint(x + 20, y))
+    QTest.mouseRelease(c, Qt.LeftButton, Qt.NoModifier, QPoint(x + 20, y))
+    assert got and sum(got) > 0
     w.close()

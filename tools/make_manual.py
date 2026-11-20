@@ -326,9 +326,10 @@ def story(s: Screens) -> list:
     add(P("Tabelle", H2))
     add(bullets([
         "Spalten: Start, Ende, Dauer, Verrechenbar, Projekt, Tätigkeit, DevOps und Notiz. Lange Notizen und Tätigkeiten "
-        "brechen automatisch um. Start, Ende und Dauer sind bewusst schmal; die <b>Notiz-Spalte</b> füllt den Rest und "
-        "lässt sich am Rand der Spaltenüberschrift mit der Maus breiter oder schmaler ziehen (die Breite wird gemerkt, "
-        "ein Doppelklick auf den Rand stellt „füllt den Rest“ wieder ein).",
+        "brechen automatisch um. Start, Ende und Dauer sind bewusst schmal; die <b>Notiz-Spalte</b> füllt den Rest. "
+        "Ziehen Sie ihren rechten Rand, wird die ganze Tabelle breiter oder schmaler, und die Spalten rechts (Outlook, "
+        "DevOps, Schnellauswahl) rücken mit: zuerst Outlook, dann DevOps (beide dürfen ganz zugehen), zuletzt die "
+        "Schnellauswahl. Das Fenster muss dafür nicht größer werden; schmaler ziehen gibt den Platz zurück.",
         "Über der Tabelle wechseln Sie mit <b>Liste | Tagesplan</b> zwischen der Tabelle und dem Tagesplan "
         "(siehe „Tagesplan“ weiter unten).",
         "<b>Kästchen</b> vor jeder Zeile markieren den Eintrag; das Kästchen ganz oben im Kopf markiert alle oder keinen. "
@@ -451,6 +452,8 @@ def story(s: Screens) -> list:
         "Ein Block bleibt <b>zwischen seinen Nachbarn</b> (und vor „jetzt“ bzw. dem Tagesende); andere Einträge werden "
         "nie verschoben. Wird ein Eintrag kürzer gezogen, entsteht eine Lücke.",
         "Die laufende Aufgabe lässt sich nicht verschieben, nur ihr Start ändern.",
+        "Ein schmaler <b>Griff am rechten Rand</b> des Plans (Mauszeiger wird zum Doppelpfeil) macht den Plan breiter "
+        "oder schmaler; die Spalten rechts rücken wie bei der Notiz-Spalte mit.",
         "Die Zeitachse passt sich dem Tag an (eine halbe Stunde Rand, mindestens sechs Stunden) und lässt sich rollen.",
     ]))
     add(P("Einträge aufteilen und wieder zusammenfügen", H2))

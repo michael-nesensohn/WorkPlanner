@@ -934,17 +934,6 @@ class TimeService:
         self._run(entry.start.date(), op, save=True)
 
     @property
-    def note_col_width(self) -> int:
-        """Gemerkte Breite der Notiz-Spalte in „Heute“ (0 = automatisch)."""
-        try:
-            return max(0, int(self.db.get_setting("note_col_width") or 0))
-        except ValueError:
-            return 0
-
-    def set_note_col_width(self, width: int) -> None:
-        self.db.set_setting("note_col_width", str(max(0, int(width))))
-
-    @property
     def theme(self) -> str:
         """„light“, „dark“ oder „system“ (folgt Windows)."""
         value = self.db.get_setting("theme")
