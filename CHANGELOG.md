@@ -3,6 +3,15 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.29
+- **Spalten rechts verschieben**: Zieht man den linken Rand von Outlook, DevOps oder der Schnellauswahl, ändert sich
+  nur die Breite dieser Spalte, und die Tabelle (Notiz) wird entsprechend schmaler bzw. breiter. Keine Spalte
+  verschwindet mehr (Outlook und DevOps lassen sich bis etwa 130 Pixel zuschieben). Dafür darf sich die linke Seite jetzt
+  weiter verkleinern: die rechtsbündige Arbeitszeit-Summe wird bei Platzmangel abgeschnitten statt Platz zu reservieren.
+  Beim Breiterziehen der Notiz-Spalte oder des Tagesplans gilt dieselbe Mindestbreite.
+- **Roter Mitternachts-Hinweis** verschwindet von selbst, sobald die Zeiten des Tages korrigiert sind (nichts endet mehr
+  um 00:00); vorher musste man trotzdem „Passt“ klicken.
+
 ## 0.1.28
 - **Notiz-Spalte und Tagesplan breiter ziehen**: Zieht man den rechten Rand der Notiz-Spalte (Liste) oder den schmalen
   Griff am rechten Rand des Tagesplans, wird die linke Seite breiter und die rechten Spalten rücken mit: zuerst Outlook,

@@ -769,3 +769,15 @@ def test_old_entry_ending_exactly_at_midnight_is_flagged_once(env):
     svc.confirm_midnight(date(2026, 11, 2))
     clock.t = d(5, 9)                                       # neuer Tag, neue Prüfung: bestätigt bleibt bestätigt
     assert svc.unconfirmed_midnight_days() == []
+
+
+def test_midnight_hint_disappears_once_the_times_were_corrected(env):
+    """Wurde der Tag korrigiert (nichts endet mehr um 00:00), bleibt der rote Hinweis nicht stehen."""
+    svc, clock, a, b, act = env
+    svc.start_task(a, act)
+    clock.t = datetime(2026, 11, 3, 7, 0)
+    assert svc.tick() is True
+    assert svc.unconfirmed_midnight_days() == [DAY]
+    last = svc.day_entries(DAY)[-1]
+    svc.edit_entry(last.id, {"end": datetime(2026, 11, 2, 17, 0)})      # am Abend aufgehört: korrigiert
+    assert svc.unconfirmed_midnight_days() == []

@@ -1408,12 +1408,11 @@ def test_dragging_the_note_column_edge_moves_the_splitter_and_right_columns(qapp
     hh.resizeSection(7, note - 100)                     # schmaler: die rechten Spalten bekommen den Platz
     qapp.processEvents()
     assert w.body.sizes()[0] <= left + 60 - 100 + 160   # (die Kopfzeile der linken Seite begrenzt, wie weit es schmaler geht)
-    before = list(w.body.sizes())
-    w._move_splitter(10 ** 5)                           # sehr breit: Outlook und DevOps gehen zu, die Schnellauswahl bleibt
+    w._move_splitter(10 ** 5)                           # sehr breit: nichts verschwindet, jede Spalte behält ihr Minimum
     sizes = w.body.sizes()
-    assert sizes[1] == 0 and sizes[2] == 0 and sizes[3] >= w.body.widget(3).minimumSizeHint().width()
-    w._move_splitter(-200)                              # wieder schmaler: Outlook kommt zurück
-    assert w.body.sizes()[1] > 0
+    assert all(sizes[i] >= w.body.minimum_for(i) - 1 for i in (1, 2, 3))
+    w._move_splitter(-200)                              # wieder schmaler: der Platz geht an Outlook
+    assert w.body.sizes()[1] >= sizes[1] + 190
     w.close()
 
 
@@ -1429,4 +1428,24 @@ def test_plan_edge_grip_requests_a_wider_plan(qapp):
     QTest.mouseMove(c, QPoint(x + 20, y))
     QTest.mouseRelease(c, Qt.LeftButton, Qt.NoModifier, QPoint(x + 20, y))
     assert got and sum(got) > 0
+    w.close()
+
+
+def test_dragging_a_right_column_edge_resizes_that_column_and_the_table_gives_way(qapp):
+    db = Database()
+    seed(db)
+    w = MainWindow(TimeService(db, Clock(9, 0)))
+    w.resize(1400, 700)
+    w.show()
+    qapp.processEvents()
+    w._restore_split()
+    qapp.processEvents()
+    before = w.body.sizes()
+    handle = w.body.handle(2)                            # Trenner zwischen Outlook und DevOps
+    w.body.drag_handle(handle, -40, before)              # 40 px nach links: DevOps wird breiter
+    after = w.body.sizes()
+    assert after[2] == before[2] + 40 and after[1] == before[1] and after[3] == before[3]   # nur DevOps und Tabelle ändern sich
+    assert after[0] == before[0] - 40
+    w.body.drag_handle(handle, 10 ** 5, before)          # sehr weit nach rechts: DevOps nur bis zum Minimum, nie weg
+    assert w.body.sizes()[2] >= w.body.minimum_for(2)
     w.close()

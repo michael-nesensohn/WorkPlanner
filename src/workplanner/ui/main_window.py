@@ -10,7 +10,7 @@ from datetime import date, datetime, time, timedelta
 from PySide6.QtCore import QEvent, QItemSelectionModel, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox, QSystemTrayIcon,
-                               QProgressBar, QPushButton, QScrollArea, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem, QTabWidget,
+                               QProgressBar, QPushButton, QScrollArea, QSplitter, QSplitterHandle, QStackedWidget, QTableWidget, QTableWidgetItem, QTabWidget,
                                QVBoxLayout, QWidget, QHeaderView)
 
 from ..devops_sync import item_id_from_note
@@ -123,6 +123,54 @@ class ClockLabel(QLabel):
 
     def mouseDoubleClickEvent(self, event):
         self.doubleClicked.emit()
+
+
+PANEL_MIN = 130   # Outlook und DevOps lassen sich nur bis zu dieser Breite zuschieben (sie verschwinden nie ganz)
+
+
+class _BodyHandle(QSplitterHandle):
+    """Trenner links von einer rechten Spalte. Ziehen ändert die Breite dieser Spalte; die Tabelle (Notiz) nimmt die
+    Differenz auf, die anderen Spalten behalten ihre Breite."""
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._x0 = event.globalPosition().x()
+            self._sizes0 = self.splitter().sizes()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() & Qt.LeftButton and getattr(self, "_sizes0", None):
+            self.splitter().drag_handle(self, event.globalPosition().x() - self._x0, self._sizes0)
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._sizes0 = None
+        super().mouseReleaseEvent(event)
+
+
+class _BodySplitter(QSplitter):
+    """Tabelle | Outlook | DevOps | Schnellauswahl."""
+    dragged = Signal()
+
+    def createHandle(self):
+        return _BodyHandle(self.orientation(), self)
+
+    def minimum_for(self, index: int) -> int:
+        return PANEL_MIN if index in (1, 2) else self.widget(index).minimumSizeHint().width()
+
+    def drag_handle(self, handle, dx: float, sizes0: list[int]) -> None:
+        k = self.indexOf(handle)
+        if k < 1:
+            return
+        sizes = list(sizes0)
+        left_min = self.widget(0).minimumSizeHint().width()
+        new = sizes[k] - int(round(dx))                       # nach links ziehen: die Spalte wird breiter
+        new = max(self.minimum_for(k), min(new, sizes[k] + sizes[0] - left_min))
+        sizes[0] += sizes[k] - new
+        sizes[k] = new
+        self.setSizes(sizes)
+        self.dragged.emit()
 
 
 class _SizedDialog(QDialog):
@@ -437,10 +485,8 @@ class MainWindow(QMainWindow):
         side_box.setLayout(side)
         side.setContentsMargins(0, 0, 0, 0)
         # Breite von DevOps-Features und Schnellauswahl per Maus verschiebbar; wird gespeichert
-        self.body = QSplitter(Qt.Horizontal)
+        self.body = _BodySplitter(Qt.Horizontal)
         self.body.setChildrenCollapsible(False)
-        # Outlook und DevOps dürfen ganz zugehen, damit die Tabelle (Notiz) breiter gezogen werden kann; mit dem Trenner
-        # holt man sie zurück
         self.outlook = OutlookPanel()   # Termine des angezeigten Tages; Klick = Eintrag
         self.outlook.appointment_chosen.connect(self._book_appointment)
         for w in (left_box, self.outlook, self.features, side_box):  # Outlook | DevOps-Features | Schnellauswahl
@@ -448,11 +494,12 @@ class MainWindow(QMainWindow):
         self.body.setStretchFactor(0, 1)
         for i in (1, 2, 3):
             self.body.setStretchFactor(i, 0)
-        self.body.setCollapsible(1, True)
-        self.body.setCollapsible(2, True)
+        for i in range(4):
+            self.body.setCollapsible(i, False)   # nichts verschwindet beim Ziehen; die Tabelle (Notiz) gibt nach
         self._split_saver = QTimer(self, singleShot=True, interval=400)
         self._split_saver.timeout.connect(self._save_split)
         self.body.splitterMoved.connect(lambda *_: self._split_saver.start())
+        self.body.dragged.connect(self._split_saver.start)
         self._split_restored = False
         lay.addWidget(self.body, 1)
 
@@ -468,7 +515,9 @@ class MainWindow(QMainWindow):
         # Nichts darf springen, wenn der Zusatz „(Pause −0:30 abgezogen)“ erscheint oder verschwindet: Breite für den
         # längsten Text reservieren
         self.total_label.setText("Arbeitszeit (ohne Pausen): <b>00:00 h</b> <span>(Pause −0:00 abgezogen)</span>  /  Soll 00:00 h")
-        self.total_label.setMinimumWidth(self.total_label.sizeHint().width() + 24)
+        # keine feste Mindestbreite: die rechtsbündige Summe darf bei schmaler linker Seite abgeschnitten werden, damit
+        # sich die linke Seite beim Ziehen der Trenner verkleinern lässt (davor stand hier eine reservierte Breite)
+        self.total_label.setMinimumWidth(1)
         self.total_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.total_label.setText("")
         self.progress = QProgressBar()
@@ -501,6 +550,8 @@ class MainWindow(QMainWindow):
         self.end_label = QLabel()  # unter dem Soll: wann es voraussichtlich erreicht ist
         self.end_label.setStyleSheet("color:#2F5597")
         self.end_label.setAlignment(Qt.AlignRight)
+        self.end_label.setMinimumWidth(1)
+        self.progress.setMinimumWidth(60)
         totals = QVBoxLayout()
         totals.setSpacing(0)
         totals.addWidget(self.total_label, 0, Qt.AlignRight)
@@ -890,16 +941,15 @@ class MainWindow(QMainWindow):
 
     def _move_splitter(self, delta: int) -> None:
         """Linke Seite (Tabelle bzw. Tagesplan) um `delta` Pixel breiter (+) oder schmaler (−) machen. Was fehlt, geht
-        von den rechten Spalten ab: zuerst Outlook, dann DevOps (beide dürfen ganz zugehen), zuletzt die
-        Schnellauswahl (nie unter ihre Mindestbreite). Was frei wird, bekommt die erste sichtbare rechte Spalte."""
+        von den rechten Spalten ab: zuerst Outlook, dann DevOps, zuletzt die Schnellauswahl (jede nur bis zu ihrer
+        Mindestbreite, nichts verschwindet). Was frei wird, bekommt die erste sichtbare rechte Spalte."""
         if not delta:
             return
         sizes = self.body.sizes()
         if delta > 0:
             take = delta
             for i in (1, 2, 3):
-                floor = self.body.widget(i).minimumSizeHint().width() if i == 3 else 0
-                got = min(max(0, sizes[i] - floor), take)
+                got = min(max(0, sizes[i] - self.body.minimum_for(i)), take)
                 sizes[i] -= got
                 take -= got
             sizes[0] += delta - take

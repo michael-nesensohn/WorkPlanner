@@ -689,7 +689,8 @@ class TimeService:
 
     def unconfirmed_midnight_days(self) -> list[date]:
         """Tage mit einer Aufgabe über Mitternacht, die noch bestätigt werden müssen. Prüft einmal je Tag auch die
-        letzten Tage auf Einträge, die genau um 00:00 enden (früher automatisch so beendet)."""
+        letzten Tage auf Einträge, die genau um 00:00 enden (früher automatisch so beendet). Hat man die Zeiten des
+        Tages inzwischen korrigiert (nichts endet mehr um 00:00), gilt der Tag als bestätigt."""
         today = self.now().date()
         if getattr(self, "_midnight_scanned", None) != today:
             self._midnight_scanned = today
@@ -698,7 +699,14 @@ class TimeService:
                 end = datetime.combine(day + timedelta(days=1), time.min)
                 if not self.db.midnight_known(day) and any(e.end == end for e in self.db.load_day(day)):
                     self.db.flag_midnight(day)
-        return self.db.midnight_unconfirmed()
+        days = []
+        for day in self.db.midnight_unconfirmed():
+            end = datetime.combine(day + timedelta(days=1), time.min)
+            if any(e.end == end for e in self.db.load_day(day)):
+                days.append(day)
+            else:   # die Zeiten wurden schon korrigiert (nichts endet mehr um 00:00): kein Hinweis mehr nötig
+                self.db.confirm_midnight(day)
+        return days
 
     def confirm_midnight(self, day: date) -> None:
         self.db.confirm_midnight(day)
