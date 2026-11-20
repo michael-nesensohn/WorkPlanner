@@ -92,16 +92,35 @@ def _shift(entries: list[Entry], from_idx: int, delta: timedelta) -> list[Entry]
     return out
 
 
+def _push_from(entries: list[Entry], from_idx: int, cursor: datetime) -> list[Entry]:
+    """Schiebt die Einträge ab `from_idx` nur so weit nach hinten, dass nichts vor `cursor` beginnt. Eine Lücke davor
+    wird dabei verbraucht; liegt der Folgeeintrag schon später, bleibt alles, wo es ist."""
+    out = list(entries)
+    for i in range(from_idx, len(out)):
+        e = out[i]
+        if e.start >= cursor:
+            break
+        delta = cursor - e.start
+        out[i] = replace(e, start=e.start + delta, end=None if e.end is None else e.end + delta)
+        if out[i].end is None:
+            break
+        cursor = out[i].end
+    return out
+
+
 def _checked(entries: list[Entry], now: datetime) -> list[Entry]:
     validate(entries, now)
     return entries
 
 
 def set_end(entries: list[Entry], idx: int, new_end: datetime, now: datetime) -> list[Entry]:
-    """Neues Ende; alle Folgeeinträge werden um die Differenz verschoben."""
+    """Neues Ende. Später: eine Lücke danach wird verbraucht, Folgeeinträge rücken nur so weit, wie es nötig ist.
+    Früher: die Folgeeinträge rücken um die Differenz nach vorn (eine vorhandene Lücke bleibt gleich groß)."""
     e = entries[idx]
     if e.end is None:  # laufender Eintrag: Ende setzen = beenden
         out = list(entries)
+    elif new_end > e.end:
+        out = _push_from(entries, idx + 1, new_end)
     else:
         out = _shift(entries, idx + 1, new_end - e.end)
     out[idx] = replace(e, end=new_end)
@@ -218,7 +237,7 @@ def insert(entries: list[Entry], new: Entry, now: datetime) -> list[Entry]:
         raise TimelineError("Ein eingefügter Eintrag braucht ein Ende.")
     new = _snap(entries, new)
     pos = sum(1 for e in entries if e.start < new.start)
-    out = _shift(entries, pos, new.end - new.start)
+    out = _push_from(entries, pos, new.end)
     out.insert(pos, new)
     return _checked(out, now)
 
@@ -230,7 +249,7 @@ def insert_fit(entries: list[Entry], new: Entry, now: datetime) -> list[Entry]:
         raise TimelineError("Ein eingefügter Eintrag braucht ein Ende.")
     new = _snap(entries, new)
     pos = sum(1 for e in entries if e.start < new.start)
-    out = _shift(entries, pos, new.end - new.start)
+    out = _push_from(entries, pos, new.end)
     out.insert(pos, new)
     fitted = out[:pos + 1]
     for e in out[pos + 1:]:
@@ -242,8 +261,9 @@ def insert_fit(entries: list[Entry], new: Entry, now: datetime) -> list[Entry]:
     return _checked(fitted, now)
 
 
-def delete(entries: list[Entry], idx: int, now: datetime, close_gap: bool = True) -> list[Entry]:
-    """Löscht einen Eintrag; Folgeeinträge rücken um seine Dauer nach vorn."""
+def delete(entries: list[Entry], idx: int, now: datetime, close_gap: bool = False) -> list[Entry]:
+    """Löscht einen Eintrag. Die anderen bleiben, wo sie sind (es entsteht eine Lücke); nur mit `close_gap` rücken die
+    Folgeeinträge um seine Dauer nach vorn."""
     e = entries[idx]
     out = entries[:idx] + entries[idx + 1:]
     if close_gap and e.end is not None:
@@ -411,6 +431,35 @@ def merge_work(entries: list[Entry], first: int, last: int, fields: dict, now: d
             run.append(e)
     flush()
     return _checked(out + list(entries[last + 1:]), now)
+
+
+def retime(entries: list[Entry], idx: int, start: datetime, end: datetime | None, now: datetime) -> list[Entry]:
+    """Setzt Start und Ende eines Eintrags, ohne andere zu verändern (z. B. beim Ziehen im Tagesplan). Er darf
+    keinen Nachbarn überlappen; entstehende Lücken bleiben."""
+    out = list(entries)
+    out[idx] = replace(entries[idx], start=start, end=end)
+    return _checked(out, now)
+
+
+def chain(entries: list[Entry], idxs: list[int], now: datetime) -> list[Entry]:
+    """Legt die markierten Einträge lückenlos hintereinander (in der Reihenfolge ihres Starts): Die Dauern bleiben,
+    Start und Ende ändern sich. Der Block beginnt beim Start des ersten; dahinter bleibt eine Lücke."""
+    idxs = sorted(set(idxs))
+    if len(idxs) < 2:
+        raise TimelineError("Zum Hintereinanderlegen braucht es mindestens zwei Einträge.")
+    first, last = idxs[0], idxs[-1]
+    if any(i not in idxs for i in range(first, last + 1)):
+        raise TimelineError("Zwischen den markierten Einträgen liegen andere Einträge. Bitte nur direkt aufeinander "
+                            "folgende Einträge markieren (Lücken dazwischen sind erlaubt).")
+    if any(entries[i].end is None for i in idxs):
+        raise TimelineError("Die laufende Aufgabe lässt sich nicht verschieben. Erst beenden.")
+    out = list(entries)
+    cursor = entries[first].start
+    for i in idxs:
+        e = entries[i]
+        out[i] = replace(e, start=cursor, end=cursor + (e.end - e.start))
+        cursor = out[i].end
+    return _checked(out, now)
 
 
 def stop(entries: list[Entry], now: datetime) -> list[Entry]:

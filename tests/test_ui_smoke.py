@@ -509,9 +509,9 @@ def test_table_allows_multi_select_delete(qapp, monkeypatch):
     assert len(w._selected_entries()) == 2
     w._delete()
     assert w.table.rowCount() == 2
-    assert [w.table.item(r, 0).text() for r in range(2)] == ["08:00", "09:00"]
+    assert [w.table.item(r, 0).text() for r in range(2)] == ["10:00", "11:00"]   # nichts rutscht nach
     first, second = svc.day_entries(w.day)
-    assert (first.start.hour, first.end.hour) == (8, 9) and second.end is None
+    assert (first.start.hour, first.end.hour) == (10, 11) and second.end is None
 
 
 def test_devops_scope_choice_applies_to_features_and_stories_and_is_remembered(qapp):
@@ -1204,3 +1204,207 @@ def test_tile_context_menu_hangs_the_running_time_on_another_project(qapp, monke
     w._tile_menu(b, None)
     got = svc.current()
     assert got.id == run.id and got.project_id == b and got.start == run.start        # umgehängt, nicht neu gestartet
+
+
+def test_gap_after_delete_is_shown_as_blue_row_and_can_be_filled(qapp, monkeypatch):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QMessageBox
+    import workplanner.ui.main_window as mw
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Yes)
+    db = Database()
+    seed(db)
+    clock = Clock(8, 0)
+    svc = TimeService(db, clock)
+    w = MainWindow(svc)
+    pid = svc.projects()[0]["id"]
+    for h in (8, 9, 10):
+        clock.set(h)
+        w._pick_project(pid)
+    clock.set(10, 30)
+    w.refresh()
+    w.table.selectRow(1)                                   # 09:00–10:00 löschen
+    w._delete()
+    assert w.table.rowCount() == 3 and w._row_entries[1] is None
+    assert w.table.item(1, 0).text() == "09:00" and w.table.item(1, 1).text() == "10:00"
+    assert w.table.item(1, 4).text().startswith("Lücke")
+    assert not (w.table.item(1, 0).flags() & Qt.ItemIsSelectable)
+    assert [e.start.hour for e in svc.day_entries(w.day)] == [8, 10]        # der Rest ist nicht nachgerutscht
+    seen = {}
+
+    class Fake:
+        def __init__(self, svc_, day, entry, start, parent, default_end=None):
+            seen["start"], seen["end"] = start, default_end
+
+        def exec(self):
+            return False
+    monkeypatch.setattr(mw, "EntryDialog", Fake)
+    w._row_activated(w.table.model().index(1, 0))
+    assert (seen["start"].hour, seen["end"].hour) == (9, 10)               # Doppelklick auf die Lücke
+
+
+def test_chain_button_lays_selected_entries_back_to_back(qapp, monkeypatch):
+    from PySide6.QtCore import QItemSelectionModel
+    from PySide6.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Yes)
+    db = Database()
+    seed(db)
+    clock = Clock(8, 0)
+    svc = TimeService(db, clock)
+    w = MainWindow(svc)
+    pid = svc.projects()[0]["id"]
+    for h in (8, 9, 10):
+        clock.set(h)
+        w._pick_project(pid)
+    clock.set(11)
+    w._pick_project(pid)
+    clock.set(12)
+    w.refresh()
+    svc.delete_entry(svc.day_entries(w.day)[1].id)         # Lücke 09–10
+    w.refresh()
+    for r in (0, 2):                                         # 08–09 und 10–11 (Zeile 1 ist die Lücke)
+        w.table.selectionModel().select(w.table.model().index(r, 0),
+                                        QItemSelectionModel.Select | QItemSelectionModel.Rows)
+    assert len(w._selected_entries()) == 2
+    w._chain()
+    assert [(e.start.hour, e.end.hour if e.end else None) for e in svc.day_entries(w.day)] == [(8, 9), (9, 10), (11, None)]
+
+
+def _plan_window(qapp):
+    from datetime import datetime as dt
+    from workplanner.timeline import Entry
+    db = Database()
+    seed(db)
+    clock = Clock(15, 0)
+    svc = TimeService(db, clock)
+    pid = svc.projects()[0]["id"]
+    d = lambda h, m=0: dt(2026, 11, 2, h, m)  # noqa: E731
+    db.save_day(d(8).date(), [Entry(d(8), d(9), project_id=pid, note="a"), Entry(d(10), d(11), project_id=pid, note="b")])
+    w = MainWindow(svc)
+    w.day = d(8).date()
+    w._set_view("plan")
+    w.resize(1000, 700)
+    w.show()
+    w.refresh()
+    w.plan.canvas.resize(900, w.plan.canvas.height())
+    return w, svc, w.plan.canvas, d
+
+
+def _drag(canvas, y_from, y_to, x=300):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    QTest.mousePress(canvas, Qt.LeftButton, Qt.NoModifier, QPoint(x, int(y_from)))
+    QTest.mouseMove(canvas, QPoint(x, int((y_from + y_to) / 2)))
+    QTest.mouseMove(canvas, QPoint(x, int(y_to)))
+    QTest.mouseRelease(canvas, Qt.LeftButton, Qt.NoModifier, QPoint(x, int(y_to)))
+
+
+def test_day_plan_drag_moves_entry_in_15_minute_steps(qapp):
+    from workplanner.ui.day_plan import PX_PER_MIN
+    w, svc, c, d = _plan_window(qapp)
+    first = svc.day_entries(w.day)[0]
+    y = c.y_of(d(8, 30))                                    # Mitte des ersten Blocks (08:00–09:00)
+    _drag(c, y, y + 31 * PX_PER_MIN)                        # ~31 Minuten nach unten -> eingerastet auf +30
+    moved = [e for e in svc.day_entries(w.day) if e.id == first.id][0]
+    assert (moved.start, moved.end) == (d(8, 30), d(9, 30))
+    assert [e.start for e in svc.day_entries(w.day)][1] == d(10)       # der andere Eintrag bleibt stehen
+    w.close()
+
+
+def test_day_plan_resize_bottom_edge_uses_up_the_gap_and_cannot_overlap(qapp):
+    from workplanner.ui.day_plan import PX_PER_MIN
+    w, svc, c, d = _plan_window(qapp)
+    edge = c.y_of(d(9)) - 3                                 # untere Kante des ersten Blocks
+    _drag(c, edge, edge + 20 * PX_PER_MIN)                  # +20 min -> 09:15
+    assert svc.day_entries(w.day)[0].end == d(9, 15)
+    edge = c.y_of(d(9, 15)) - 3
+    _drag(c, edge, edge + 300 * PX_PER_MIN)                 # weit über den Nachbarn hinaus: bei 10:00 gestoppt
+    assert svc.day_entries(w.day)[0].end == d(10)
+    w.close()
+
+
+def test_day_plan_click_selects_and_clicking_a_gap_double_click_requests_entry(qapp, monkeypatch):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    import workplanner.ui.main_window as mw
+    got = {}
+
+    class Fake:   # kein modaler Dialog im Test
+        def __init__(self, svc_, day, entry, start, parent, default_end=None):
+            got["gap"] = (start, default_end)
+
+        def exec(self):
+            return False
+    monkeypatch.setattr(mw, "EntryDialog", Fake)
+    w, svc, c, d = _plan_window(qapp)
+    y = c.y_of(d(8, 30))
+    QTest.mouseClick(c, Qt.LeftButton, Qt.NoModifier, QPoint(300, int(y)))
+    assert [e.start for e in w._selected_entries()] == [d(8)]               # Auswahl wirkt auf die Tabelle
+    QTest.mouseDClick(c, Qt.LeftButton, Qt.NoModifier, QPoint(300, int(c.y_of(d(9, 30)))))
+    assert got["gap"] == (d(9), d(10))
+    w.close()
+
+
+def test_day_plan_wraps_long_notes_and_cuts_with_ellipsis(qapp):
+    from PySide6.QtGui import QFontMetrics
+    from workplanner.ui.day_plan import _wrap
+    fm = QFontMetrics(qapp.font())
+    text = "eins zwei drei vier fünf sechs sieben acht neun zehn elf zwölf " * 3
+    lines = _wrap(text, fm, 120, 2)
+    assert len(lines) == 2 and lines[-1].endswith("…") and all(fm.horizontalAdvance(x) <= 120 for x in lines)
+    assert _wrap("kurz", fm, 120, 2) == ["kurz"]
+    assert _wrap("a\nb", fm, 120, 5) == ["a", "b"]
+    assert _wrap("a\nb\nc", fm, 120, 2)[-1].endswith("…")
+    assert _wrap("text", fm, 120, 0) == []
+
+
+def test_dark_theme_remaps_colors_and_can_switch_back(qapp):
+    from workplanner.ui import theme
+    css = "QLabel{color:#1f2937;background:white;border:1px solid #c9d3e0} QPushButton{color:white;background:#4f8cff}"
+    try:
+        assert theme.remap(css) == css                                   # hell: unverändert
+        theme.apply(qapp, "dark", "")
+        dark = theme.remap(css)
+        assert "#e5e9f2" in dark and "#3a4660" in dark and "background:#1a202c" in dark
+        assert "color:white" in dark and "#4f8cff" in dark               # Text auf Knöpfen und Akzentblau bleiben
+        db = Database()
+        svc = TimeService(db, Clock(9, 0))
+        svc.set_theme("dark")                                             # das Fenster übernimmt die gespeicherte Wahl
+        w = MainWindow(svc)
+        assert theme.is_dark()
+        w.setStyleSheet("QLabel{color:#1f2937}")
+        assert "#e5e9f2" in w.styleSheet()
+        theme.apply(qapp, "light", "")                                    # zurück: alle Fenster bekommen die helle Vorlage
+        assert w.styleSheet() == "QLabel{color:#1f2937}"
+        w.close()
+    finally:
+        theme.apply(qapp, "light", "")
+
+
+def test_settings_page_does_not_force_a_tall_window(qapp):
+    """Die Einstellungen liegen in einem Rollbereich: das Fenster darf auch auf einem Laptop niedrig bleiben."""
+    from workplanner.ui.pages import MasterDataPage
+    page = MasterDataPage(TimeService(Database(), Clock(9, 0)))
+    page.reload()
+    assert page.minimumSizeHint().height() < 600
+    page.close()
+
+
+def test_note_column_is_resizable_and_remembers_width(qapp):
+    db = Database()
+    seed(db)
+    svc = TimeService(db, Clock(9, 0))
+    w = MainWindow(svc)
+    w.resize(1100, 700)
+    w.show()
+    w.refresh()
+    hh = w.table.horizontalHeader()
+    assert hh.sectionResizeMode(7) == hh.ResizeMode.Interactive
+    auto = hh.sectionSize(7)
+    hh.resizeSection(7, auto + 80)                      # wie mit der Maus gezogen
+    assert svc.note_col_width == auto + 80 and w._note_width == auto + 80
+    w.resize(1000, 700)                                 # Fenstergröße ändert die gezogene Breite nicht
+    qapp.processEvents()
+    assert hh.sectionSize(7) == auto + 80
+    w._note_auto(7)                                     # Doppelklick auf den Rand: wieder automatisch
+    assert svc.note_col_width == 0
+    w.close()

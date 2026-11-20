@@ -124,13 +124,14 @@ def table(rows: list[list[str]], widths: list[float], header: bool = True) -> Ta
 
 # Zeitleisten-Bilder: so wirken Zusammensetzen, Aufteilen und Pausen auf die Einträge eines Tages
 SEG_COLORS = {"a": ("#B9D1F2", "#1f2937"), "b": ("#BFE3C6", "#1f2937"), "c": ("#F6D9A6", "#1f2937"),
-              "m": ("#2F5597", "#ffffff"), "p": ("#D5DAE2", "#475467"), "n": ("#2F5597", "#ffffff")}
+              "m": ("#2F5597", "#ffffff"), "p": ("#D5DAE2", "#475467"), "n": ("#2F5597", "#ffffff"),
+              "g": ("#E3EEFB", "#2F5597")}
 
 
 def figure(rows: list[tuple[str, list[tuple[float, float, str, str]]]], caption: str, t0: float = 8.0,
            t1: float = 14.0) -> KeepTogether:
     """Mehrere Zeitleisten untereinander. Zeile = (Beschriftung, [(von, bis, Text, Art), ...]) mit Zeiten in Stunden;
-    Art: a/b/c = Projekte, m = zusammengesetzt, p = Pause."""
+    Art: a/b/c = Projekte, m = zusammengesetzt, p = Pause, g = Lücke (nichts erfasst)."""
     width, left = FRAME_W, 3.4 * cm
     scale = (width - 4 - left) / (t1 - t0)
     row_h, gap, top = 26, 12, 16
@@ -146,8 +147,10 @@ def figure(rows: list[tuple[str, list[tuple[float, float, str, str]]]], caption:
         for start, end, text, kind in segs:
             fill, ink = SEG_COLORS[kind]
             x1, x2 = left + (start - t0) * scale, left + (end - t0) * scale
+            gap = kind == "g"
             d.add(Rect(x1 + 0.6, y, x2 - x1 - 1.2, row_h, rx=3, ry=3, fillColor=colors.HexColor(fill),
-                       strokeColor=colors.white, strokeWidth=0.8))
+                       strokeColor=colors.HexColor("#9DB9E3") if gap else colors.white, strokeWidth=0.9 if gap else 0.8,
+                       strokeDashArray=[3, 2] if gap else None))
             if pdfmetrics.stringWidth(text, "Seg", 7.5) < x2 - x1 - 6:
                 d.add(String((x1 + x2) / 2, y + row_h / 2 - 3, text, fontName="Seg", fontSize=7.5,
                              fillColor=colors.HexColor(ink), textAnchor="middle"))
@@ -323,7 +326,11 @@ def story(s: Screens) -> list:
     add(P("Tabelle", H2))
     add(bullets([
         "Spalten: Start, Ende, Dauer, Verrechenbar, Projekt, Tätigkeit, DevOps und Notiz. Lange Notizen und Tätigkeiten "
-        "brechen automatisch um.",
+        "brechen automatisch um. Start, Ende und Dauer sind bewusst schmal; die <b>Notiz-Spalte</b> füllt den Rest und "
+        "lässt sich am Rand der Spaltenüberschrift mit der Maus breiter oder schmaler ziehen (die Breite wird gemerkt, "
+        "ein Doppelklick auf den Rand stellt „füllt den Rest“ wieder ein).",
+        "Über der Tabelle wechseln Sie mit <b>Liste | Tagesplan</b> zwischen der Tabelle und dem Tagesplan "
+        "(siehe „Tagesplan“ weiter unten).",
         "<b>Kästchen</b> vor jeder Zeile markieren den Eintrag; das Kästchen ganz oben im Kopf markiert alle oder keinen. "
         "Eine Zeile anzuklicken markiert sie ebenfalls.",
         "Oben rechts stehen die Tagessumme, das Soll und das voraussichtliche <b>Soll-Ende</b>, daneben der Fortschrittsbalken.",
@@ -337,7 +344,11 @@ def story(s: Screens) -> list:
         "<b>Start = Ende des Vorgängers</b> setzt den Start auf das Ende des Eintrags davor. Die Projektliste ist "
         "alphabetisch; ohne Auswahl gilt „Allgemein“.",
         "Liegt ein Eintrag in der Mitte einer längeren Aufgabe, wird diese <b>aufgetrennt</b> und läuft danach weiter.",
-        "<b>Löschen</b> (oder Entf): alle markierten Einträge; die späteren rücken nach vorn.",
+        "<b>Löschen</b> (oder Entf): alle markierten Einträge. Es <b>rutscht nichts nach</b>: die anderen Einträge "
+        "bleiben genau, wo sie sind, und an der Stelle des gelöschten entsteht eine Lücke (siehe unten). Eine "
+        "gelöschte <i>Pause</i> wird dagegen geschlossen (siehe „Einträge aufteilen und wieder zusammenfügen“).",
+        "<b>Projekt im Eintrag ändern:</b> Neben der Projektauswahl des Dialogs steht ein Stift-Symbol. Es öffnet das "
+        "Projekt zum Bearbeiten (Nummer und Name), auch wenn es nicht in der Schnellauswahl steht.",
     ]))
     add(s.pic("eintrag_dialog", "Eintrag hinzufügen – die Vorschau zeigt, was sich verschiebt", width=9.5 * cm))
     add(P("Wie sich andere Einträge anpassen", H2))
@@ -389,6 +400,59 @@ def story(s: Screens) -> list:
                             (12.5, 14, "Projekt B", "b")]),
                 ("Nachher", [(8, 12, "Projekt X", "m"), (12, 12.5, "Pause", "p"), (12.5, 14, "Projekt X", "m")])],
                "Zusammensetzen: Start des ersten, Ende des letzten Eintrags; die Pause bleibt, die Aufgabe teilt sich um sie herum"))
+    add(P("Lücken", H2))
+    add(P("Fehlt zwischen zwei Einträgen Zeit (mindestens eine Minute), zeigt die Tabelle dort eine hellblaue Zeile "
+          "<b>Lücke – nichts erfasst</b> mit Start, Ende und Dauer. Lücken entstehen, wenn Sie einen Eintrag löschen, "
+          "einen Eintrag im Tagesplan verschieben oder ihn kürzer ziehen. Sie zählen nicht zur Arbeitszeit."))
+    add(bullets([
+        "<b>Doppelklick auf eine Lücke</b> öffnet „Eintrag hinzufügen“ mit genau dieser Zeit.",
+        "Wird die <b>Zeit eines Eintrags verlängert</b> und reicht in eine Lücke hinein, wird die Lücke kleiner oder "
+        "verschwindet; spätere Einträge rücken nur so weit nach hinten, wie es nötig ist. Ein neu eingefügter Eintrag "
+        "nimmt zuerst die Lücke ein.",
+        "Wird ein Eintrag über das Bearbeiten <i>kürzer</i>, rücken die späteren wie bisher mit. Wer dabei eine Lücke "
+        "haben möchte, verschiebt oder verkürzt ihn im Tagesplan.",
+    ]))
+    add(figure([("Vorher", [(8, 9, "Projekt A", "a"), (9, 10, "Projekt B", "b"), (10, 11.5, "Projekt C", "c")]),
+                ("B gelöscht", [(8, 9, "Projekt A", "a"), (9, 10, "Lücke", "g"), (10, 11.5, "Projekt C", "c")]),
+                ("A verlängert", [(8, 9.5, "Projekt A", "a"), (9.5, 10, "Lücke", "g"), (10, 11.5, "Projekt C", "c")])],
+               "Löschen verschiebt nichts: es entsteht eine Lücke, die ein verlängerter Eintrag wieder verbraucht"))
+    add(P("Einträge hintereinander legen", H2))
+    add(P("Markieren Sie mehrere Einträge und klicken Sie auf <b>Hintereinander …</b>: WorkPlanner legt sie in der "
+          "Reihenfolge ihres Starts <b>lückenlos hintereinander</b>. Die <b>Dauern bleiben</b>, Start und Ende ändern "
+          "sich. Der Block beginnt beim Start des ersten Eintrags; dahinter bleibt eine Lücke, und alle anderen Einträge "
+          "bleiben, wo sie sind. Vor dem Speichern zeigt ein Fenster „alt → neu“."))
+    add(bullets([
+        "Es dürfen Lücken zwischen den markierten Einträgen liegen, aber <b>kein nicht markierter Eintrag</b>.",
+        "Die laufende Aufgabe lässt sich nicht verschieben; sie muss vorher beendet sein.",
+    ]))
+    add(figure([("Vorher", [(8, 9, "Projekt A", "a"), (9, 9.5, "Lücke", "g"), (9.5, 10.5, "Projekt B", "b"),
+                            (10.5, 11.5, "Lücke", "g"), (11.5, 12.5, "Projekt C", "c")]),
+                ("Hintereinander", [(8, 9, "Projekt A", "a"), (9, 10, "Projekt B", "b"), (10, 11, "Projekt C", "c"),
+                                    (11, 12.5, "Lücke", "g")])],
+               "Hintereinander legen: gleiche Dauern, lückenlos ab dem Start des ersten Eintrags"))
+    add(P("Tagesplan", H2))
+    add(P("Mit <b>Liste | Tagesplan</b> über der Tabelle zeigt „Heute“ die Einträge als Blöcke auf einer Zeitachse, "
+          "ähnlich einem Kalender. Die Wahl wird gemerkt. Jeder Block hat die Farbe seines Projekts; Pausen sind grau, "
+          "die laufende Aufgabe hat einen grünen Rand, und eine grüne Linie zeigt die aktuelle Uhrzeit. Lücken sind "
+          "hellblau und gestrichelt. Die Notiz steht im Block, so weit sie hineinpasst (sonst endet sie mit „…“); "
+          "fährt man mit der Maus über einen Block, zeigt ein Hinweis alle Angaben samt der ganzen Notiz."))
+    add(table([
+        ["Mit der Maus", "Wirkung"],
+        ["Block ziehen", "verschiebt den Eintrag, die Dauer bleibt"],
+        ["Obere oder untere Kante ziehen", "ändert Start bzw. Ende"],
+        ["Klick, Strg + Klick", "markiert einen bzw. mehrere Einträge; die Knöpfe darunter (Löschen, Zusammensetzen, "
+                                "Hintereinander …) wirken wie in der Tabelle"],
+        ["Doppelklick auf einen Block", "Eintrag bearbeiten"],
+        ["Doppelklick auf eine Lücke", "Eintrag in genau diese Zeit hinzufügen"],
+    ], [5.2 * cm, FRAME_W - 5.2 * cm]))
+    add(Spacer(1, 4))
+    add(bullets([
+        "Alles rastet auf <b>15 Minuten</b> ein, ein Hinweis zeigt dabei die Uhrzeit. Ein bloßer Klick ändert nichts.",
+        "Ein Block bleibt <b>zwischen seinen Nachbarn</b> (und vor „jetzt“ bzw. dem Tagesende); andere Einträge werden "
+        "nie verschoben. Wird ein Eintrag kürzer gezogen, entsteht eine Lücke.",
+        "Die laufende Aufgabe lässt sich nicht verschieben, nur ihr Start ändern.",
+        "Die Zeitachse passt sich dem Tag an (eine halbe Stunde Rand, mindestens sechs Stunden) und lässt sich rollen.",
+    ]))
     add(P("Einträge aufteilen und wieder zusammenfügen", H2))
     add(P("Eine Pause <b>schneidet</b> eine Aufgabe immer: Liegt sie mitten in einer Aufgabe, wird diese aufgetrennt und "
           "läuft danach mit denselben Angaben weiter."))
@@ -594,11 +658,18 @@ def story(s: Screens) -> list:
     add(CondPageBreak(9 * cm))
     add(P("11&nbsp;&nbsp;Einstellungen und Stammdaten", H1))
     add(s.pic("menue", "Menü „Einstellungen“", width=8.2 * cm))
-    add(P("Zwei Reiter in einem Fenster; das Fenster merkt sich seine Größe.", BODY))
+    add(P("Zwei Reiter in einem Fenster; das Fenster merkt sich seine Größe. Die Einstellungen sind in einem "
+          "Rollbereich, damit das Fenster auch auf einem Laptop niedrig bleiben kann.", BODY))
     add(P("Stammdaten", H2))
     add(bullets([
         "<b>Projekte:</b> Neu, Bearbeiten (Name, Nummer, „verrechenbar“), Favorit-Stern (erscheint in der Schnellauswahl), "
-        "Farbe, Pfeile hoch/runter (Reihenfolge) und Löschen. Die Reihenfolge entspricht Strg+1 … 9.",
+        "Farbe, Pfeile hoch/runter (Reihenfolge) und Löschen. Die Reihenfolge entspricht Strg+1 … 9. Nummer und Name "
+        "stehen in Spalten untereinander; die <b>Sortierung</b> über der Liste (eigene Reihenfolge, Projektnummer A–Z, "
+        "Name A–Z) betrifft nur diese Anzeige, nicht die Schnellauswahl.",
+        "<b>Nummer oder Name ändern:</b> WorkPlanner fragt, <b>ab wann</b> die Änderung gilt: <i>ab heute</i> "
+        "(empfohlen), <i>ab einem Datum</i> oder <i>für alle Tage</i>. Bereits erfasste Tage davor behalten ihre "
+        "bisherige Nummer und ihren Namen (Heute, Berichte, Excel- und PDF-Export). Wer die Änderung rückwirkend "
+        "braucht, wählt ein früheres Datum oder „für alle Tage“.",
         "<b>Tätigkeiten:</b> Neu, Ändern, Löschen. Eine Tätigkeit gilt für alle Projekte oder nur für eines.",
     ]))
     add(P("Einstellungen", H2))
@@ -613,11 +684,16 @@ def story(s: Screens) -> list:
         ["DevOps-Funktionen", "alle DevOps-Teile ein- oder ausblenden"],
         ["Teams-Anrufe", "Nachfrage nach Anrufen ein/aus"],
         ["Hinweis bei Datenbank größer als", "Grenze in MB für die Warnung beim Start (0 = nie); zeigt die aktuelle Größe"],
+        ["Darstellung", "Hell, Dunkel oder Wie Windows. Der Wechsel gilt sofort in allen Fenstern; „Wie Windows“ wird "
+                        "beim Start übernommen. Voreingestellt ist Hell."],
         ["Mittagspause ab / Pausendauer", "Zeitfenster, das von der Arbeitszeit abgezogen wird (0 min = keine Pause)"],
         ["Mittagspause", "zur Mittagszeit nachfragen („Pause starten?“) oder kein Pausenabzug"],
         ["Pausen in Excel", "Pausen-Einträge als Zeile „Pause“ in den Excel-Stundenzettel eintragen (Standard: aus)"],
         ["Soll-Arbeitszeit pro Tag", "Grundlage für Soll, Soll-Ende und alle Differenzen (Montag bis Freitag)"],
         ["Excel-Stundenzettel", "Datei für den Eintrag der Stunden; „Datei nach dem Eintragen speichern“"],
+        ["Sicherung vor dem Eintragen", "kopiert die Excel-Datei (Stand der gespeicherten Datei) vor jeder Änderung in einen "
+                                        "Ordner (Standard C:\\temp\\Stundenzettel). Die Sicherung heißt wie die Datei "
+                                        "und wird jedes Mal überschrieben; ist sie nicht möglich, wird nichts eingetragen."],
     ], [5.2 * cm, FRAME_W - 5.2 * cm]))
 
     # --- 12 Tray ------------------------------------------------------------------------------------------------
@@ -698,6 +774,9 @@ def story(s: Screens) -> list:
         ["Markierte Einträge löschen", "Entf"],
         ["Laufende Zeit ändern", "Doppelklick auf die große Uhr oder „Zeit ändern“"],
         ["Alle Einträge markieren", "Kästchen im Tabellenkopf (oder Strg + A in der Tabelle)"],
+        ["Mehrere Blöcke im Tagesplan markieren", "Strg + Klick"],
+        ["Eintrag in eine Lücke einfügen", "Doppelklick auf die Lücke (Tabelle oder Tagesplan)"],
+        ["Zeit eines Blocks im Tagesplan ändern", "Block oder Kante ziehen (15-Minuten-Raster)"],
     ], [7 * cm, FRAME_W - 7 * cm]))
 
     # --- 16 Fehler --------------------------------------------------------------------------------------------------

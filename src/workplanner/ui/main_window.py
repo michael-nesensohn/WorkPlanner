@@ -9,8 +9,8 @@ from datetime import date, datetime, time, timedelta
 
 from PySide6.QtCore import QEvent, QItemSelectionModel, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox, QSystemTrayIcon,
-                               QProgressBar, QPushButton, QScrollArea, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
+from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox, QSystemTrayIcon,
+                               QProgressBar, QPushButton, QScrollArea, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem, QTabWidget,
                                QVBoxLayout, QWidget, QHeaderView)
 
 from ..devops_sync import item_id_from_note
@@ -22,6 +22,8 @@ from ..manual import manual_path
 from ..outlook import read_appointments
 from ..timeline import PAUSE, TimelineError, removed_entries
 from .dialogs import CalendarDialog, EntryDialog, MergeDialog, ask_lunch_pause, ask_pause_times, NoteEdit, RunningTimeDialog, fmt_duration, fmt_time, note_one_line
+from . import theme
+from .day_plan import DayPlan
 from .devops_page import DevOpsPage
 from .feature_panel import FeatureFeed, FeaturePanel, to_cache
 from .tiles import TileButton
@@ -50,6 +52,7 @@ QTabBar::tab:hover { color: #2F5597; background: #eef3fa; }
 QTabBar::tab:selected { color: #1f3a5f; border-bottom: 3px solid #4f8cff; }
 QHeaderView::section { background: #f4f7fb; color: #4a5a73; font-weight: 600; padding: 5px 8px; border: none;
                        border-bottom: 1px solid #d5deea; border-right: 1px solid #e4e9f0; }
+QHeaderView#checkHeader::section { padding: 5px 4px; }
 QHeaderView#checkHeader::section:first { padding-left: 26px; }
 QTableView, QTreeView, QListView { border: 1px solid #d5deea; border-radius: 8px; gridline-color: #eef1f6;
                                    selection-background-color: #dce8fb; selection-color: #1f3a5f; }
@@ -167,6 +170,8 @@ class MainWindow(QMainWindow):
         self.sel_project: int | None = None
         self.sel_activity: int | None = None
         self._entries = []
+        self._row_entries: list = []   # je Tabellenzeile der Eintrag oder None bei einer Lücke
+        self._row_gaps: dict = {}      # Zeile der Lücke -> (von, bis)
         self._ticks = 0
         self.setWindowTitle(f"WorkPlanner  v{__version__}")
         self.setWindowIcon(app_icon())
@@ -175,6 +180,8 @@ class MainWindow(QMainWindow):
         self._geometry_saver = QTimer(self, singleShot=True, interval=500)  # Größe/Position kurz nach dem Ziehen merken
         self._geometry_saver.timeout.connect(self._save_geometry)
         self.svc.restore_window(self)
+        theme.install()
+        theme.apply(QApplication.instance(), self.svc.theme, APP_STYLE)   # helles oder dunkles Design
         self.setStyleSheet(STYLE)
 
         self.tabs = QTabWidget()
@@ -202,6 +209,7 @@ class MainWindow(QMainWindow):
         self.report.open_day.connect(self._open_day_from_week)   # Rechtsklick in der Vorschau: Springe zu diesem Tag
         self.report.entries_changed.connect(lambda: self.refresh())
         self.master = MasterDataPage(service)
+        self.master.theme_changed.connect(self._theme_changed)
         self.tabs.addTab(self.week, "Woche")
         self.tabs.addTab(self.report, "Berichte")
         self.devops = DevOpsPage(service)
@@ -465,6 +473,24 @@ class MainWindow(QMainWindow):
         cal.clicked.connect(self._pick_date)
         for w in (prev, self.day_label, nxt, cal, today):
             nav.addWidget(w)
+        nav.addSpacing(10)
+        seg = QButtonGroup(self)
+        self.view_buttons = {}
+        for i, (key, text, tip) in enumerate((("list", "Liste", "Einträge als Tabelle"),
+                                              ("plan", "Tagesplan", "Einträge als Blöcke auf der Zeitachse; per Maus "
+                                                                    "verschieben und in der Länge ändern"))):
+            b = QPushButton(text)
+            b.setCheckable(True)
+            b.setToolTip(tip)
+            b.setStyleSheet(
+                "QPushButton{border:1px solid #c9d3e0;background:#ffffff;color:#1f2937;padding:5px 14px;border-radius:0}"
+                "QPushButton:checked{background:rgb(47,85,151);color:#ffffff;border-color:rgb(47,85,151)}"
+                + ("QPushButton{border-top-left-radius:10px;border-bottom-left-radius:10px}" if i == 0 else
+                   "QPushButton{border-top-right-radius:10px;border-bottom-right-radius:10px;border-left:0}"))
+            seg.addButton(b)
+            b.clicked.connect(lambda _=False, k=key: self._set_view(k))
+            nav.addWidget(b)
+            self.view_buttons[key] = b
         nav.addStretch(1)
         self.end_label = QLabel()  # unter dem Soll: wann es voraussichtlich erreicht ist
         self.end_label.setStyleSheet("color:#2F5597")
@@ -480,7 +506,7 @@ class MainWindow(QMainWindow):
         self.table = QTableWidget(0, 8)
         self.check_header = CheckHeader(self.table)
         self.table.setHorizontalHeader(self.check_header)
-        self.table.setHorizontalHeaderLabels(["      Start", "Ende", "Dauer", "Verr.", "Projekt", "Tätigkeit", "DevOps", "Notiz"])
+        self.table.setHorizontalHeaderLabels(["Start", "Ende", "Dauer", "Verr.", "Projekt", "Tätigkeit", "DevOps", "Notiz"])
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.ExtendedSelection)  # mehrere mit Strg/Umschalt
@@ -490,7 +516,20 @@ class MainWindow(QMainWindow):
         hh.setSectionResizeMode(QHeaderView.ResizeToContents)
         hh.setSectionResizeMode(5, QHeaderView.Interactive)   # Tätigkeit: feste Breite, Text bricht um
         hh.resizeSection(5, 110)
-        hh.setSectionResizeMode(7, QHeaderView.Stretch)
+        # Start, Ende, Dauer und „Verr.“ schmal halten (Uhrzeiten brauchen kaum Platz); der Rest geht an Projekt und Notiz
+        fm, hfm = QFontMetrics(self.table.font()), QFontMetrics(QFont(self.table.font().family(), self.table.font().pointSize(), QFont.Bold))
+        narrow = {0: max(26 + hfm.horizontalAdvance("Start") + 6, 24 + fm.horizontalAdvance("00:00") + 10),
+                  1: max(fm.horizontalAdvance("läuft"), hfm.horizontalAdvance("Ende")) + 14,
+                  2: max(fm.horizontalAdvance("00:00"), hfm.horizontalAdvance("Dauer")) + 14,
+                  3: hfm.horizontalAdvance("Verr.") + 14}
+        for col, width in narrow.items():
+            hh.setSectionResizeMode(col, QHeaderView.Interactive)
+            hh.resizeSection(col, width)
+        hh.setSectionResizeMode(7, QHeaderView.Interactive)   # Notiz: füllt den Rest, per Maus aber veränderbar
+        self._note_fitting = False
+        self._note_width = self.svc.note_col_width   # 0 = automatisch (Rest der Breite)
+        hh.sectionResized.connect(self._note_resized)
+        hh.sectionHandleDoubleClicked.connect(self._note_auto)
         self.table.setWordWrap(True)  # lange Notizen werden umgebrochen, die Zeile wird entsprechend höher
         self.table.setTextElideMode(Qt.ElideNone)
         hh.sectionResized.connect(lambda *_: self.table.resizeRowsToContents())
@@ -502,10 +541,19 @@ class MainWindow(QMainWindow):
         self.table.itemChanged.connect(self._entry_checked)
         self.table.selectionModel().selectionChanged.connect(lambda *_: self._sync_checks())
         self.check_header.toggled.connect(self._check_all)
-        self.table.doubleClicked.connect(lambda _: self._edit())
+        self.table.doubleClicked.connect(self._row_activated)
         QShortcut(QKeySequence(Qt.Key_Delete), self.table, activated=self._delete,
                   context=Qt.WidgetShortcut)
-        left.addWidget(self.table, 1)
+        self.plan = DayPlan(self.svc)
+        self.plan.selection_changed.connect(self._select_ids)
+        self.plan.edit_requested.connect(self._plan_edit)
+        self.plan.gap_requested.connect(self._add_in_gap)
+        self.plan.retimed.connect(self._retime)
+        self.day_stack = QStackedWidget()
+        self.day_stack.addWidget(self.table)
+        self.day_stack.addWidget(self.plan)
+        left.addWidget(self.day_stack, 1)
+        self._set_view(self.svc.day_view)
 
         # zwei Zeilen, damit die Tabelle schmal werden darf und die Schnellauswahl mehr Platz bekommt
         self._lunch_snooze: datetime | None = None
@@ -514,7 +562,7 @@ class MainWindow(QMainWindow):
         rows = (QHBoxLayout(), QHBoxLayout())
         for row, items in zip(rows, ((("Bearbeiten", self._edit), ("Eintrag hinzufügen", self._add),
                                       ("Löschen", self._delete),
-                                      ("Zusammensetzen …", self._merge)),
+                                      ("Zusammensetzen …", self._merge), ("Hintereinander …", self._chain)),
                                      (("Outlook-Termine importieren …", self._import_outlook),
                                       ("Notiz → DevOps-Task …", self._note_to_task)))):
             for text, fn in items:
@@ -787,13 +835,15 @@ class MainWindow(QMainWindow):
                     it.setCheckState(Qt.Checked if r in selected else Qt.Unchecked)
         finally:
             self._syncing = False
-        n = self.table.rowCount()
+        self.plan.set_selected({self._row_entries[r].id for r in selected
+                                if r < len(self._row_entries) and self._row_entries[r] is not None})
+        n = sum(1 for e in self._row_entries if e is not None)
         self.check_header.set_state(Qt.Unchecked if not selected else Qt.Checked if len(selected) == n
                                     else Qt.PartiallyChecked)
 
     def _selected_entries(self) -> list:
         rows = sorted({i.row() for i in self.table.selectionModel().selectedRows()})
-        ids = [self.table.item(r, 0).data(Qt.UserRole) for r in rows]
+        ids = [self._row_entries[r].id for r in rows if r < len(self._row_entries) and self._row_entries[r] is not None]
         return [e for e in self._entries if e.id in ids]
 
     def _selected_entry(self):
@@ -807,6 +857,117 @@ class MainWindow(QMainWindow):
         e = self._selected_entry()
         if e and EntryDialog(self.svc, self.day, e, parent=self).exec():
             self.refresh()
+
+    def _theme_changed(self) -> None:
+        """Design gewechselt (Einstellungen): gilt sofort für alle Fenster."""
+        theme.apply(QApplication.instance(), self.svc.theme, APP_STYLE)
+        self.refresh()
+        self.plan.canvas.update()
+
+    def _fit_note_column(self) -> None:
+        """Notiz-Spalte: ohne eigene Breite füllt sie den Rest der Tabelle, sonst gilt die gezogene Breite."""
+        hh = self.table.horizontalHeader()
+        others = sum(hh.sectionSize(c) for c in range(self.table.columnCount())
+                     if c != 7 and not self.table.isColumnHidden(c))
+        width = self._note_width or max(120, self.table.viewport().width() - others)
+        if hh.sectionSize(7) != width:
+            self._note_fitting = True
+            try:
+                hh.resizeSection(7, width)
+            finally:
+                self._note_fitting = False
+
+    def _note_resized(self, column: int, _old: int, new: int) -> None:
+        """Die Notiz-Spalte wurde mit der Maus verändert: Breite merken (Doppelklick auf den Rand: wieder automatisch)."""
+        if column == 7 and not self._note_fitting:
+            self._note_width = new
+            self.svc.set_note_col_width(new)
+
+    def _note_auto(self, column: int) -> None:
+        if column == 7:
+            self._note_width = 0
+            self.svc.set_note_col_width(0)
+            self._fit_note_column()
+
+    def _set_view(self, view: str) -> None:
+        self.svc.set_day_view(view)
+        self.day_stack.setCurrentWidget(self.plan if view == "plan" else self.table)
+        self.view_buttons[view].setChecked(True)
+
+    def _select_ids(self, ids: list) -> None:
+        """Auswahl aus dem Tagesplan in die Tabelle übernehmen (die Knöpfe darunter arbeiten mit ihr)."""
+        sel = self.table.selectionModel()
+        self._syncing = True
+        try:
+            self.table.clearSelection()
+            for r, e in enumerate(self._row_entries):
+                if e is not None and e.id in ids:
+                    sel.select(self.table.model().index(r, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+        finally:
+            self._syncing = False
+        self._sync_checks()
+
+    def _plan_edit(self, entry_id: int) -> None:
+        self._select_ids([entry_id])
+        self._edit()
+
+    def _add_in_gap(self, start: datetime, end: datetime) -> None:
+        """Eintrag in eine Lücke einfügen (Doppelklick auf die Lücke)."""
+        if EntryDialog(self.svc, self.day, None, start.replace(second=0, microsecond=0), self,
+                       default_end=end.replace(second=0, microsecond=0)).exec():
+            self.refresh()
+
+    def _retime(self, entry_id: int, start: datetime, end) -> None:
+        """Im Tagesplan gezogen: neue Zeiten speichern, andere Einträge bleiben, wo sie sind."""
+        try:
+            self.svc.retime_entry(entry_id, start, end)
+        except TimelineError as ex:
+            QMessageBox.warning(self, "Nicht möglich", str(ex))
+        self.refresh()
+
+    def _fill_gap_row(self, r: int, start: datetime, end: datetime) -> None:
+        """Lücke zwischen zwei Einträgen: hellblau, nicht markierbar (Doppelklick trägt dort einen Eintrag ein)."""
+        vals = [fmt_time(start), fmt_time(end), fmt_duration(end - start), "", "Lücke – nichts erfasst", "", "", ""]
+        for c, v in enumerate(vals):
+            it = QTableWidgetItem(v)
+            it.setFlags(Qt.ItemIsEnabled)
+            it.setBackground(theme.qcolor("#e3eefb"))
+            it.setForeground(theme.qcolor("#2F5597"))
+            if c == 4:
+                it.setToolTip("Hier ist nichts erfasst. Doppelklick: Eintrag in diese Zeit einfügen.")
+            if c == 3:
+                it.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(r, c, it)
+
+    def _row_activated(self, index) -> None:
+        """Doppelklick: Eintrag bearbeiten; auf eine Lücke (blaue Zeile) einen Eintrag in diese Zeit einfügen."""
+        r = index.row()
+        if 0 <= r < len(self._row_entries) and self._row_entries[r] is None:
+            self._add_in_gap(*self._row_gaps[r])
+            return
+        self._edit()
+
+    def _chain(self) -> None:
+        """Markierte Einträge lückenlos hintereinander legen: Dauern bleiben, Start und Ende ändern sich."""
+        chosen = self._selected_entries()
+        if len(chosen) < 2:
+            QMessageBox.information(self, "Hintereinander legen",
+                                    "Bitte mindestens zwei Einträge markieren. Sie werden in der Reihenfolge ihres Starts "
+                                    "lückenlos hintereinander gelegt, die Dauern bleiben.")
+            return
+        ids = [e.id for e in chosen]
+        try:
+            old, new = self.svc.preview_chain(ids)
+        except TimelineError as ex:
+            QMessageBox.warning(self, "Nicht möglich", str(ex))
+            return
+        by_id = {e.id: e for e in new}
+        lines = [f"{fmt_time(o.start)}–{fmt_time(o.end)}  →  {fmt_time(by_id[o.id].start)}–{fmt_time(by_id[o.id].end)}"
+                 f"   {self.svc.entry_label(o)}" for o in old if o.id in ids]
+        if QMessageBox.question(self, "Hintereinander legen",
+                                "Die markierten Einträge werden lückenlos hintereinander gelegt (Dauern bleiben):\n\n"
+                                + "\n".join(lines) + "\n\nAndere Einträge bleiben, wo sie sind.") == QMessageBox.Yes:
+            self._guard(self.svc.chain_entries, ids)
 
     def _merge(self) -> None:
         """Markierte, nebeneinander liegende Einträge zu einem zusammensetzen (Projekt wählen, Notizen vereint)."""
@@ -1023,6 +1184,7 @@ class MainWindow(QMainWindow):
 
     def eventFilter(self, obj, event):
         if event.type() == QEvent.Resize and obj is self.table.viewport():
+            self._fit_note_column()
             self._row_fit.start()
         return super().eventFilter(obj, event)
 
@@ -1188,10 +1350,10 @@ class MainWindow(QMainWindow):
         if len(chosen) == 1:
             text = ("Pause löschen? Die Aufgabe davor läuft durch bis zur nächsten; war es dieselbe Aufgabe, wird sie "
                     "wieder zusammengefügt.") if chosen[0].kind == PAUSE else \
-                "Eintrag löschen? Alle Folgeeinträge rücken entsprechend nach vorn."
+                "Eintrag löschen? Es entsteht eine Lücke, die anderen Einträge bleiben, wo sie sind."
         else:
             text = (f"{len(chosen)} markierte Einträge löschen? "
-                    "Alle Folgeeinträge rücken entsprechend nach vorn.")
+                    "Es entstehen Lücken, die anderen Einträge bleiben, wo sie sind.")
         if QMessageBox.question(self, "Löschen", text) == QMessageBox.Yes:
             self._guard(self.svc.delete_entries, [e.id for e in chosen])
 
@@ -1384,9 +1546,19 @@ class MainWindow(QMainWindow):
 
         keep = {e.id for e in self._selected_entries()}   # markierte Einträge bleiben nach dem Neuaufbau markiert
         self._syncing = True
-        self.table.setRowCount(len(self._entries))
+        gaps = {a: (a, b) for a, b in self.svc.gaps(self._entries)}
+        self._row_entries, self._row_gaps = [], {}
+        for e in self._entries:
+            self._row_entries.append(e)
+            if e.end in gaps:
+                self._row_gaps[len(self._row_entries)] = gaps[e.end]
+                self._row_entries.append(None)
+        self.table.setRowCount(len(self._row_entries))
         windows = self.svc.lunch_windows(self._entries)
-        for r, e in enumerate(self._entries):
+        for r, e in enumerate(self._row_entries):
+            if e is None:
+                self._fill_gap_row(r, *self._row_gaps[r])
+                continue
             lunch = self.svc.lunch_overlap(e, windows[e.start.date()], now)
             vals = [fmt_time(e.start), fmt_time(e.end), fmt_duration(e.duration(now) - lunch),
                     "✓" if e.billable and e.kind != PAUSE else "",
@@ -1409,18 +1581,19 @@ class MainWindow(QMainWindow):
                     it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
                     it.setCheckState(Qt.Unchecked)
                 if e.kind == PAUSE:
-                    it.setForeground(QColor("#888"))
+                    it.setForeground(theme.qcolor("#888"))
                 elif e.running:
-                    it.setForeground(QColor("#1b7f3b"))
+                    it.setForeground(theme.qcolor("#1b7f3b"))
                 self.table.setItem(r, c, it)
         self._syncing = False
         self.table.resizeRowsToContents()
         self.table.clearSelection()
-        for r, e in enumerate(self._entries):
-            if e.id in keep:
+        for r, e in enumerate(self._row_entries):
+            if e is not None and e.id in keep:
                 self.table.selectionModel().select(self.table.model().index(r, 0),
                                                    QItemSelectionModel.Select | QItemSelectionModel.Rows)
         self._sync_checks()
+        self.plan.set_data(self.day, self._entries, now)
         lunch_on = self.svc.lunch_mode != "off" and self.svc.pause_length.total_seconds() > 0
         off_today = self.svc.pause_disabled(self.day)
         self.pause_btn.setText("Mittagspause" if off_today else "Keine Mittagspause")
@@ -1546,7 +1719,9 @@ class MainWindow(QMainWindow):
         if self.tray:
             self.tray.set_tooltip(f"WorkPlanner – {self.task_label.text()}  {self.timer_label.text()}"
                                   if run else "WorkPlanner – keine Aufgabe läuft")
+        if self.day_stack.currentWidget() is self.plan:
+            self.plan.set_now(now)
         # Laufende Dauer in der Tabelle
-        for r, e in enumerate(self._entries):
-            if e.running and self.table.item(r, 2):
+        for r, e in enumerate(self._row_entries):
+            if e is not None and e.running and self.table.item(r, 2):
                 self.table.item(r, 2).setText(fmt_duration(self.svc.net_duration(e, now)))

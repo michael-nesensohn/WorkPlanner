@@ -12,8 +12,10 @@ def _poly(*pts: tuple[float, float]) -> QPolygonF:
     return QPolygonF([QPointF(x, y) for x, y in pts])
 
 
-def line_icon(kind: str, color: str = ACCENT) -> QIcon:
+def line_icon(kind: str, color: str | None = None) -> QIcon:
     """kind: "edit" (Stift), "to_previous" (Pfeil zum Ende des Vorgängers)."""
+    from . import theme
+    color = color or theme.hexcolor(ACCENT)   # im dunklen Design das hellere Blau
     pm = QPixmap(_SIZE, _SIZE)
     pm.fill(Qt.transparent)
     p = QPainter(pm)

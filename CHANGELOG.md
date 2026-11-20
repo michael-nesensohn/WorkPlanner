@@ -3,6 +3,32 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.27
+- **Löschen verschiebt nichts mehr**: Wird ein Eintrag (oder mehrere) gelöscht, bleiben alle anderen Einträge genau,
+  wo sie sind. Es entsteht eine Lücke statt dass die Folgeeinträge nachrutschen.
+- **Lücken sichtbar**: Fehlt zwischen zwei Einträgen Zeit, steht dort in „Heute“ eine hellblaue Zeile „Lücke – nichts
+  erfasst“ (ab 1 Minute). Doppelklick auf die Lücke öffnet „Eintrag hinzufügen“ mit genau dieser Zeit.
+- Verlängert man das Ende eines Eintrags in eine Lücke hinein, wird die Lücke kleiner bzw. verschwindet; Folgeeinträge
+  rücken nur so weit, wie es nötig ist. Ein neu eingefügter Eintrag nimmt zuerst die Lücke ein. Wird ein Eintrag kürzer,
+  rücken die Folgeeinträge wie bisher mit (eine vorhandene Lücke bleibt gleich groß).
+- Neuer Knopf **Hintereinander …**: Markierte Einträge werden in der Reihenfolge ihres Starts lückenlos
+  hintereinander gelegt. Die Dauern bleiben, Start und Ende ändern sich (mit Vorschau); andere Einträge bleiben.
+- **Tagesplan** (Umschalter **Liste | Tagesplan** in „Heute“, die Wahl bleibt gespeichert): Die Einträge des Tages als
+  farbige Blöcke auf einer Zeitachse, Lücken gestrichelt hellblau, Pausen grau, die laufende Aufgabe grün mit
+  „Jetzt“-Linie. Mit der Maus: Block ziehen verschiebt ihn, die obere oder untere Kante ändert Start bzw. Ende, alles
+  rastet auf 15 Minuten ein und bleibt innerhalb der Nachbarn (andere Einträge werden nie verschoben). Klick markiert
+  (Strg = mehrere, die Knöpfe darunter wirken wie in der Liste), Doppelklick auf einen Block bearbeitet ihn, Doppelklick
+  auf eine Lücke legt dort einen Eintrag an.
+- Tagesplan: Die Notiz steht im Block, so viele Zeilen wie hineinpassen (umgebrochen); ist sie länger, endet sie mit „…“.
+  Fährt man mit der Maus über einen Block, zeigt ein Hinweis alle Angaben samt ganzer Notiz.
+- **Dunkles Design**: Einstellungen → Stammdaten → Einstellungen → **Darstellung**: Hell, Dunkel oder Wie Windows. Die
+  Umstellung gilt sofort in allen Fenstern (Heute, Tagesplan, Berichte, Dialoge); „Wie Windows“ wird beim Start
+  übernommen. Standard bleibt Hell.
+- Handbuch: neue Abschnitte zu Lücken, Hintereinander legen und Tagesplan (mit Bildern), zur Änderung von Projektnummer/-name ab einem Datum, zum dunklen Design und zur Sicherung des Excel-Stundenzettels.
+- Liste in „Heute“: Die **Notiz-Spalte** lässt sich per Maus breiter oder schmaler ziehen (die Breite wird gemerkt);
+  Doppelklick auf den Spaltenrand stellt wieder „füllt den Rest“ ein.
+- Liste in „Heute“: Die Spalten Start, Ende, Dauer und Verr. sind schmaler, der Platz geht an Projekt und Notiz.
+
 ## 0.1.26
 - Projektnummer oder Projektname ändern (Einstellungen → Stammdaten → Projekt bearbeiten): Es wird gefragt, **ab wann**
   die Änderung gilt – ab heute (Standard), ab einem Datum oder für alle Tage. Bereits erfasste Tage davor behalten ihre

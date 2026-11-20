@@ -8,7 +8,7 @@ from PySide6.QtCore import QDate, QRect, QTime, Qt, Signal
 from PySide6.QtGui import QColor, QFontMetrics, QKeySequence
 from PySide6.QtWidgets import (QApplication, QCheckBox, QColorDialog, QComboBox, QDateEdit, QDialog, QDialogButtonBox,
                                QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QKeySequenceEdit, QLabel,
-                               QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton,
+                               QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton, QScrollArea,
                                QSpinBox, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableWidget,
                                QTableWidgetItem, QTabWidget, QTimeEdit, QVBoxLayout, QWidget)
 
@@ -17,6 +17,11 @@ from ..export import ALL_COLUMNS, COLUMNS, export_excel
 from ..export_pdf import DETAIL, SUMMARY, export_pdf
 from ..service import TimeService
 from .dialogs import fmt_duration
+from .theme import MODES as theme_modes_tuple
+
+
+def theme_modes():
+    return theme_modes_tuple
 
 PREVIEW_ROWS = 200
 MONDAY_NAMES = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
@@ -111,6 +116,7 @@ class ProjectListDelegate(QStyledItemDelegate):
 
 class MasterDataPage(QWidget):
     changed = Signal()
+    theme_changed = Signal()
 
     def __init__(self, service: TimeService):
         super().__init__()
@@ -160,6 +166,12 @@ class MasterDataPage(QWidget):
         self.target.setDisplayFormat("HH:mm")
         self.default_project = QComboBox()
         sf.addRow("Standardprojekt (Start ohne Auswahl)", self.default_project)
+        self.theme_box = QComboBox()
+        for key, label in theme_modes():
+            self.theme_box.addItem(label, key)
+        self.theme_box.setToolTip("Helles oder dunkles Design; „Wie Windows“ folgt der Einstellung von Windows "
+                                  "(wird beim Start übernommen).")
+        sf.addRow("Darstellung", self.theme_box)
         self.hotkey_edit = QKeySequenceEdit()
         self.hotkey_edit.setMaximumSequenceLength(1)
         self.hotkey_edit.setToolTip("Zum Ändern hineinklicken und die Tasten drücken")
@@ -214,8 +226,14 @@ class MasterDataPage(QWidget):
         settings = QWidget()
         lay = QVBoxLayout(settings)
         lay.addWidget(sbox)
+        # Die Einstellungen sind lang: in einem Rollbereich, damit das Fenster nicht höher werden muss, als der
+        # Bildschirm (z. B. ein Laptop) hergibt; was nicht passt, wird gerollt
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setWidget(settings)
         self.sections.addTab(master, "Stammdaten")
-        self.sections.addTab(settings, "Einstellungen")
+        self.sections.addTab(scroll, "Einstellungen")
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self.sections)
@@ -314,6 +332,7 @@ class MasterDataPage(QWidget):
         self.excel_backup_path.editingFinished.connect(self._save_excel)
         self.excel_pause.clicked.connect(lambda _: self._save_excel())
         self.lunch_mode.currentIndexChanged.connect(self._save_settings)
+        self.theme_box.currentIndexChanged.connect(self._theme_picked)
         self.autostart_cb.clicked.connect(self._autostart_changed)
         self.start_tray_cb.clicked.connect(self._start_tray_changed)
         self.tray_cb.clicked.connect(lambda on: self.svc.set_tray_mode(on))
@@ -397,6 +416,9 @@ class MasterDataPage(QWidget):
         self.pause_start.setTime(QTime(s.hour, s.minute))
         self.pause_min.setValue(int(self.svc.pause_length.total_seconds() // 60))
         self.lunch_mode.setCurrentIndex(max(0, self.lunch_mode.findData(self.svc.lunch_mode)))
+        self.theme_box.blockSignals(True)
+        self.theme_box.setCurrentIndex(max(0, self.theme_box.findData(self.svc.theme)))
+        self.theme_box.blockSignals(False)
         tm = int(self.svc.daily_target.total_seconds() // 60)
         self.target.setTime(QTime(tm // 60, tm % 60))
         for w in (self.pause_start, self.pause_min, self.target, self.default_project, self.lunch_mode):
@@ -495,6 +517,10 @@ class MasterDataPage(QWidget):
     def show_hotkey_active(self, text: str) -> None:
         self.hotkey_status.setText(f"✓ Aktiv: {QKeySequence(text).toString(QKeySequence.NativeText)}"
                                    if text else "Aus – keine Tastenkombination.")
+
+    def _theme_picked(self) -> None:
+        self.svc.set_theme(self.theme_box.currentData())
+        self.theme_changed.emit()
 
     def _save_settings(self) -> None:
         t = self.pause_start.time()

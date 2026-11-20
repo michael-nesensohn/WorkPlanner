@@ -50,10 +50,22 @@ def test_set_duration():
     assert times(out) == [("08:00", "09:30"), ("09:30", "10:30")]
 
 
-def test_shift_keeps_gap_between_entries():
+def test_set_end_later_uses_up_the_gap_instead_of_pushing():
     day = [e(8, 0, 9, 0), e(9, 30, 10, 0)]
     out = tl.set_end(day, 0, t(9, 15), NOW)
-    assert times(out) == [("08:00", "09:15"), ("09:45", "10:15")]
+    assert times(out) == [("08:00", "09:15"), ("09:30", "10:00")]       # Lücke schrumpft auf 15 min
+
+
+def test_set_end_later_closes_the_gap_and_pushes_only_the_rest():
+    day = [e(8, 0, 9, 0), e(9, 30, 10, 0), e(10, 0, 11, 0)]
+    out = tl.set_end(day, 0, t(9, 45), NOW)
+    assert times(out) == [("08:00", "09:45"), ("09:45", "10:15"), ("10:15", "11:15")]
+
+
+def test_set_end_shorter_keeps_the_size_of_an_existing_gap():
+    day = [e(8, 0, 9, 0), e(9, 30, 10, 0)]
+    out = tl.set_end(day, 0, t(8, 45), NOW)
+    assert times(out) == [("08:00", "08:45"), ("09:15", "09:45")]
 
 
 def test_set_end_rejects_end_before_start():
@@ -68,7 +80,7 @@ def test_shift_into_future_rejected():
 
 
 def test_shift_beyond_midnight_rejected():
-    day = [e(8, 0, 9, 0), e(22, 0, 23, 30)]
+    day = [e(8, 0, 9, 0), e(9, 0, 23, 30)]
     with pytest.raises(TimelineError):
         tl.set_end(day, 0, t(11), datetime(2026, 11, 3, 6))
 
@@ -156,10 +168,30 @@ def test_insert_into_middle_of_entry_rejected():
         tl.insert([e(8, 0, 10, 0)], e(9, 0, 9, 30), NOW)
 
 
-def test_delete_closes_gap():
+def test_delete_leaves_a_gap_and_moves_nothing():
     day = [e(8, 0, 9, 0), e(9, 0, 10, 0), e(10, 0, None)]
     out = tl.delete(day, 1, NOW)
-    assert times(out) == [("08:00", "09:00"), ("09:00", None)]
+    assert times(out) == [("08:00", "09:00"), ("10:00", None)]
+
+
+def test_insert_into_a_gap_does_not_push_later_entries():
+    day = [e(8, 0, 9, 0), e(10, 0, 11, 0)]
+    out = tl.insert(day, Entry(t(9, 0), t(9, 30)), NOW)
+    assert times(out) == [("08:00", "09:00"), ("09:00", "09:30"), ("10:00", "11:00")]
+
+
+def test_chain_puts_entries_back_to_back_keeping_durations():
+    day = [e(8, 0, 9, 0), e(9, 30, 10, 0), e(11, 0, 12, 30), e(13, 0, None)]
+    out = tl.chain(day, [2, 0, 1], t(14))
+    assert times(out) == [("08:00", "09:00"), ("09:00", "09:30"), ("09:30", "11:00"), ("13:00", None)]
+
+
+def test_chain_rejects_entries_with_others_in_between_and_running_ones():
+    day = [e(8, 0, 9, 0), e(9, 0, 10, 0), e(10, 0, 11, 0)]
+    with pytest.raises(TimelineError):
+        tl.chain(day, [0, 2], t(14))
+    with pytest.raises(TimelineError):
+        tl.chain([e(8, 0, 9, 0), e(10, 0, None)], [0, 1], t(14))
 
 
 def test_delete_without_closing_gap():

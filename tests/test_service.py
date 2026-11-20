@@ -56,7 +56,7 @@ def test_edit_shifts_all_followers_and_persists(env):
     first = svc.day_entries(DAY)[0]
     svc.edit_entry(first.id, {"end": datetime(2026, 11, 2, 8, 30)})
     assert rows(svc) == [("08:00", "08:30", WORK, a), ("08:30", "09:30", WORK, b),
-                         ("09:30", None, WORK, a)]
+                         ("09:30", None, WORK, a)]    # kürzer: die Folgeeinträge rücken mit, es entsteht keine Lücke
 
 
 def test_preview_does_not_save(env):
@@ -188,7 +188,7 @@ def test_remove_pause_also_removes_legacy_pause_entries(env):
     assert rows(svc) == [("08:00", "14:00", WORK, a)] and svc.pause_disabled(DAY)
 
 
-def test_delete_entry_pulls_followers_forward(env):
+def test_delete_entry_leaves_a_gap(env):
     svc, clock, a, b, act = env
     svc.start_task(a, act)
     clock.set(9)
@@ -197,7 +197,7 @@ def test_delete_entry_pulls_followers_forward(env):
     svc.start_task(a, act)
     clock.set(11)
     svc.delete_entry(svc.day_entries(DAY)[1].id)
-    assert rows(svc) == [("08:00", "09:00", WORK, a), ("09:00", None, WORK, a)]
+    assert rows(svc) == [("08:00", "09:00", WORK, a), ("10:00", None, WORK, a)]      # nichts rutscht nach
 
 
 def test_report_rows_filter_by_project(env):
@@ -290,7 +290,7 @@ def test_add_project_skips_existing_name_or_number(env):
     assert svc.find_project(number="4711") == pid
 
 
-def test_delete_several_entries_shifts_followers_by_the_sum(env):
+def test_delete_several_entries_leaves_gaps(env):
     svc, clock, a, b, act = env
     for h, p in ((8, a), (9, b), (10, a), (11, b)):
         clock.set(h)
@@ -298,8 +298,8 @@ def test_delete_several_entries_shifts_followers_by_the_sum(env):
     clock.set(12)
     svc.stop()                       # 4 Einträge à 1 h: 8-9, 9-10, 10-11, 11-12
     e = svc.day_entries(DAY)
-    svc.delete_entries([e[2].id, e[1].id])   # Reihenfolge der Auswahl egal
-    assert rows(svc) == [("08:00", "09:00", WORK, a), ("09:00", "10:00", WORK, b)]
+    svc.delete_entries([e[1].id, e[0].id])   # Reihenfolge der Auswahl egal
+    assert rows(svc) == [("10:00", "11:00", WORK, a), ("11:00", "12:00", WORK, b)]
 
 
 def test_delete_several_with_legacy_pause_and_running_entry(env):

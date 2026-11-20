@@ -433,7 +433,8 @@ class EntryDialog(QDialog):
     """Bearbeiten (entry gegeben) oder Neuanlegen (entry=None)."""
 
     def __init__(self, service: TimeService, day: date, entry: Entry | None = None,
-                 default_start: datetime | None = None, parent=None, lock_times: bool = False):
+                 default_start: datetime | None = None, parent=None, lock_times: bool = False,
+                 default_end: datetime | None = None):
         super().__init__(parent)
         self.svc, self.day, self.entry = service, day, entry
         self.lock_times = lock_times
@@ -502,7 +503,7 @@ class EntryDialog(QDialog):
         else:
             s = default_start or service.now()
             self.start.setTime(_qtime(s))
-            self.end.setTime(_qtime(s + timedelta(minutes=30)))
+            self.end.setTime(_qtime(default_end or s + timedelta(minutes=30)))
             self.running.setVisible(False)
             self.project.setCurrentIndex(max(0, self.project.findData(default_pid)))
         self._fill_activities(entry.activity_id if entry else None)

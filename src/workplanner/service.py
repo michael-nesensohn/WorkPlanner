@@ -923,6 +923,69 @@ class TimeService:
         day, op = self._merge_op(entry_ids, project_id, activity_id, note, devops_id)
         self._run(day, op, save=True)
 
+    def retime_entry(self, entry_id: int, start: datetime, end: datetime | None) -> None:
+        """Start und Ende eines Eintrags setzen, ohne andere Einträge zu verschieben (Tagesplan: ziehen)."""
+        entry = self.db.get_entry(entry_id)
+        if entry is None:
+            raise TimelineError("Der Eintrag existiert nicht mehr.")
+
+        def op(entries: list[Entry], now: datetime) -> list[Entry]:
+            return tl.retime(entries, next(i for i, e in enumerate(entries) if e.id == entry_id), start, end, now)
+        self._run(entry.start.date(), op, save=True)
+
+    @property
+    def note_col_width(self) -> int:
+        """Gemerkte Breite der Notiz-Spalte in „Heute“ (0 = automatisch)."""
+        try:
+            return max(0, int(self.db.get_setting("note_col_width") or 0))
+        except ValueError:
+            return 0
+
+    def set_note_col_width(self, width: int) -> None:
+        self.db.set_setting("note_col_width", str(max(0, int(width))))
+
+    @property
+    def theme(self) -> str:
+        """„light“, „dark“ oder „system“ (folgt Windows)."""
+        value = self.db.get_setting("theme")
+        return value if value in ("light", "dark", "system") else "light"
+
+    def set_theme(self, mode: str) -> None:
+        self.db.set_setting("theme", mode if mode in ("light", "dark", "system") else "light")
+
+    @property
+    def day_view(self) -> str:
+        """„list“ (Tabelle) oder „plan“ (Tagesplan) in „Heute“."""
+        return "plan" if self.db.get_setting("day_view") == "plan" else "list"
+
+    def set_day_view(self, view: str) -> None:
+        self.db.set_setting("day_view", "plan" if view == "plan" else "list")
+
+    def _chain_op(self, entry_ids: list[int]):
+        entry = self.db.get_entry(entry_ids[0]) if entry_ids else None
+        if entry is None:
+            raise TimelineError("Kein Eintrag markiert.")
+        ids = set(entry_ids)
+
+        def op(entries: list[Entry], now: datetime) -> list[Entry]:
+            return tl.chain(entries, [i for i, e in enumerate(entries) if e.id in ids], now)
+        return entry.start.date(), op
+
+    def preview_chain(self, entry_ids: list[int]):
+        """(alt, neu) ohne zu speichern; wirft TimelineError, wenn es nicht geht."""
+        day, op = self._chain_op(entry_ids)
+        return self._run(day, op, save=False)
+
+    def chain_entries(self, entry_ids: list[int]) -> None:
+        """Legt die markierten Einträge lückenlos hintereinander: Dauern bleiben, Start und Ende ändern sich."""
+        day, op = self._chain_op(entry_ids)
+        self._run(day, op, save=True)
+
+    def gaps(self, entries: list[Entry], minimum: timedelta = timedelta(seconds=60)) -> list[tuple[datetime, datetime]]:
+        """Zeiträume zwischen zwei Einträgen eines Tages, in denen nichts erfasst ist (ab `minimum` Länge)."""
+        return [(a.end, b.start) for a, b in zip(entries, entries[1:])
+                if a.end is not None and b.start - a.end >= minimum]
+
     def delete_entry(self, entry_id: int) -> None:
         entry = self.db.get_entry(entry_id)
         if entry.kind == PAUSE and entry.auto_pause:   # Mittagspause: für den Tag nicht abziehen
@@ -937,7 +1000,7 @@ class TimeService:
         self._run(entry.start.date(), op, save=True)
 
     def delete_entries(self, entry_ids: list[int]) -> None:
-        """Löscht mehrere Einträge in einem Schritt; die Folgeeinträge rücken um die Summe nach vorn.
+        """Löscht mehrere Einträge in einem Schritt; es entstehen Lücken, andere Einträge bleiben, wo sie sind.
         Eine dabei mitgelöschte Pause wird wie „Pause löschen“ behandelt (für den Tag abgeschaltet)."""
         by_day: dict[date, list[int]] = {}
         for eid in entry_ids:
