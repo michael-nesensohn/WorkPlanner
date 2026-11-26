@@ -120,29 +120,59 @@ def test_notes_are_fully_visible_row_height_follows_text(qapp):
     assert t.wordWrap() and t.rowHeight(1) > t.rowHeight(2)           # mehrzeilige Notiz -> höhere Zeile
 
 
-def test_double_click_opens_the_day_in_the_today_tab(qapp):
+def test_double_click_on_day_row_opens_the_day_in_the_today_tab(qapp):
     svc, _ = week_setup()
     w = MainWindow(svc)
     w.tabs.setCurrentWidget(w.week)
     w.week.refresh()
     assert w.day == date(2026, 11, 6)
-    row = next(r for r in range(w.week.entries.rowCount()) if cell(w.week, r, 7) == "Review")
-    w.week.entries.cellDoubleClicked.emit(row, 4)                    # Eintrag vom 04.11.
-    assert w.day == date(2026, 11, 4) and w.tabs.currentIndex() == 0
-    assert w.table.rowCount() == 1 and w.table.item(0, 7).text() == "Review"
-    w.tabs.setCurrentWidget(w.week)
     head = next(r for r in range(w.week.entries.rowCount()) if (cell(w.week, r, 0) or "").startswith("Montag"))
     w.week.entries.cellDoubleClicked.emit(head, 0)                   # Tageszeile
-    assert w.day == date(2026, 11, 2)
+    assert w.day == date(2026, 11, 2) and w.tabs.currentIndex() == 0
+
+
+def test_double_click_on_an_entry_edits_it(qapp, monkeypatch):
+    from workplanner.ui import dialogs
+    svc, page = week_setup()
+    opened = []
+
+    class FakeDialog:
+        def __init__(self, service, day, entry, *args, **kwargs):
+            opened.append((day, entry))
+
+        def exec(self):
+            return 1
+    monkeypatch.setattr(dialogs, "EntryDialog", FakeDialog)
+    changed = []
+    page.entries_changed.connect(lambda: changed.append(True))
+    row = next(r for r in range(page.entries.rowCount()) if cell(page, r, 7) == "Review")
+    page.entries.cellDoubleClicked.emit(row, 4)                      # Eintrag vom 04.11.
+    assert len(opened) == 1 and opened[0][0] == date(2026, 11, 4) and opened[0][1].note == "Review"
+    assert changed == [True]
 
 
 def test_week_pauses_hidden_by_default_and_summed_in_the_overview(qapp):
     svc, page = week_setup()
     assert not page.show_pauses.isChecked()
-    assert page.days.item(0, 5).text() == "1:00" and page.days.item(7, 5).text() == "1:00"   # Pausensumme immer da
+    assert page.days.item(0, 6).text() == "1:00" and page.days.item(7, 6).text() == "1:00"   # Pausensumme immer da
     assert not any(cell(page, r, 4) == "Mittagspause" for r in range(page.entries.rowCount()))
     page.show_pauses.setChecked(True)                                                       # auf Wunsch sichtbar
     t = page.entries
     assert any(cell(page, r, 4) == "Mittagspause" for r in range(t.rowCount()))
     assert "Pausen 1:00 h" in cell(page, 0, 0) and "Pausen 1:00 h" in cell(page, t.rowCount() - 1, 0)
     assert page.days.item(0, 1).text() == "3:00"                                            # Arbeitszeit bleibt gleich
+
+
+def test_worked_plus_pause_column_adds_the_minimum_pause_once_the_target_is_reached(qapp):
+    svc, page = week_setup()
+    pid = svc.projects()[0]["id"]
+    svc.db.save_day(date(2026, 11, 3), [Entry(dt(3, 8), dt(3, 16), project_id=pid)])      # Di: 8 h = Soll erreicht
+    svc.db.save_day(date(2026, 11, 5), [Entry(dt(5, 8), dt(5, 10), project_id=pid)])      # Do: 2 h, Soll nicht erreicht
+    svc.db.set_setting("pause_minutes", "0")                            # kein Mittagsabzug: nur die Mindestpause zählt
+    svc.db.set_setting("min_pause_short", "15")
+    svc.db.set_setting("min_pause_long", "25")
+    page.refresh()
+    assert page.days.horizontalHeaderItem(2).text() == "Gearbeitet + Pause"
+    assert page.days.item(0, 2).text() == "4:00"                       # Mo: 3:00 Arbeit + 1:00 eingetragene Pause (Soll nicht erreicht)
+    assert page.days.item(1, 1).text() == "8:00" and page.days.item(1, 2).text() == "8:25"   # Di: 8:00 + 25 min Mindestpause
+    assert page.days.item(3, 2).text() == "2:00"                       # Do: Soll nicht erreicht: keine Mindestpause dazu

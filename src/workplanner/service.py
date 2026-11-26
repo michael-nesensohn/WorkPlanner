@@ -45,8 +45,102 @@ class TimeService:
         return timedelta(minutes=int(self.db.get_setting("pause_minutes")))
 
     @property
+    def week_full(self) -> timedelta:
+        """Wochenarbeitszeit bei Vollzeit (ohne gesetzten Wert: bisheriges Tagessoll × 5)."""
+        raw = self.db.get_setting("week_target_minutes")
+        return timedelta(minutes=int(raw) if raw else int(self.db.get_setting("daily_target_minutes")) * 5)
+
+    def set_week_full(self, minutes: int) -> None:
+        self.db.set_setting("week_target_minutes", str(int(minutes)))
+
+    @property
     def daily_target(self) -> timedelta:
-        return timedelta(minutes=int(self.db.get_setting("daily_target_minutes")))
+        """Tagessoll bei 100 % (Wochenarbeitszeit ÷ 5). Das Soll eines bestimmten Tages: `target_for`."""
+        return timedelta(seconds=round(self.week_full.total_seconds() / 5))
+
+    DAY_PERCENT_DEFAULT = (100, 100, 100, 100, 100, 0, 0)
+
+    @property
+    def day_percents(self) -> list[int]:
+        """Beschäftigungsgrad in % für Mo … So."""
+        try:
+            vals = [min(100, max(0, int(x))) for x in self.db.get_setting("day_percent").split(",")]
+        except ValueError:
+            vals = []
+        return vals if len(vals) == 7 else list(self.DAY_PERCENT_DEFAULT)
+
+    def set_day_percents(self, values: list[int]) -> None:
+        self.db.set_setting("day_percent", ",".join(str(min(100, max(0, int(v)))) for v in values))
+
+    def target_for(self, day: date) -> timedelta:
+        """Soll-Arbeitszeit eines Tages: Tagessoll bei 100 % × Beschäftigungsgrad des Wochentags."""
+        return timedelta(seconds=round(self.daily_target.total_seconds() * self.day_percents[day.weekday()] / 100))
+
+    def week_target(self, monday: date) -> timedelta:
+        return sum((self.target_for(monday + timedelta(days=i)) for i in range(7)), timedelta())
+
+    # --- Mindestpause: bis `limit` Arbeitszeit `short`, darüber `long` ---------------------------
+    @property
+    def min_pause_setting(self) -> tuple[timedelta, timedelta, timedelta]:
+        """(Grenze, Pause bis zur Grenze, Pause darüber)."""
+        return tuple(timedelta(minutes=int(self.db.get_setting(k)))
+                     for k in ("min_pause_limit", "min_pause_short", "min_pause_long"))
+
+    def set_min_pause(self, limit_minutes: int, short: int, long: int) -> None:
+        for k, v in (("min_pause_limit", limit_minutes), ("min_pause_short", short), ("min_pause_long", long)):
+            self.db.set_setting(k, str(int(v)))
+
+    def min_pause(self, worked: timedelta) -> timedelta:
+        """Vorgeschriebene Mindestpause für einen Tag mit dieser Arbeitszeit (ohne Arbeit keine Pause)."""
+        if worked <= timedelta(0):
+            return timedelta(0)
+        limit, short, long = self.min_pause_setting
+        return short if worked <= limit else long
+
+    def settle_min_pauses(self) -> bool:
+        """Zum Tagesende (beim nächsten Start): fehlt einem vergangenen Tag Pause bis zur Mindestpause, wird die
+        fehlende Zeit als Pause-Eintrag angelegt. Jeder Tag wird nur einmal geprüft (löscht man den Eintrag, kommt er
+        nicht wieder); Tage vor der ersten Prüfung bleiben unberührt. True, wenn ein Eintrag angelegt wurde."""
+        today = self.now().date()
+        since = self.db.get_setting("min_pause_since")
+        if not since:
+            self.db.set_setting("min_pause_since", today.isoformat())
+            return False
+        changed = False
+        day = date.fromisoformat(since)
+        while day < today:
+            if not self.db.min_pause_settled(day):
+                changed |= self._settle_day(day)
+                self.db.mark_min_pause_settled(day)
+            day += timedelta(days=1)
+        self.db.set_setting("min_pause_since", today.isoformat())
+        return changed
+
+    def _settle_day(self, day: date) -> bool:
+        if self.lunch_mode == "off" or self.db.pause_disabled(day):
+            return False
+        entries = self.db.load_day(day)
+        if not entries or any(e.running for e in entries):
+            return False
+        now = self.now()
+        missing = self.min_pause(self.work_total(entries, now)) - self.paused_total(day) - self.lunch_total(entries, now)
+        if missing <= timedelta(0):
+            return False
+        works = [e for e in entries if e.kind == WORK and e.duration(now) >= missing]
+        if not works:
+            return False
+        lunch = datetime.combine(day, self.pause_start)
+        if any(e.start <= lunch and e.end >= lunch + missing for e in works):
+            begin = lunch   # zur Mittagszeit, wenn dort gearbeitet wurde
+        else:               # sonst in die Mitte der längsten Aufgabe
+            e = max(works, key=lambda x: x.duration(now))
+            begin = e.start + (e.duration(now) - missing) / 2
+        minutes = -(-int(missing.total_seconds()) // 60)
+        try:
+            self.add_pause(day, begin.replace(second=0, microsecond=0).time(), minutes)
+        except TimelineError:
+            return False
+        return True
 
     @property
     def lunch_mode(self) -> str:
@@ -118,6 +212,26 @@ class TimeService:
 
     def set_excel_include_pause(self, on: bool) -> None:
         self.db.set_setting("excel_include_pause", "1" if on else "0")
+
+    EXCEL_ROUND_STEPS = (0, 1, 5, 10, 15)
+
+    @property
+    def excel_time_format(self) -> str:
+        """„decimal“: Industriezeit (1,25 = 1 h 15 min); „time“: Std:Min als Excel-Zeit (1:15)."""
+        return "time" if self.db.get_setting("excel_time_format") == "time" else "decimal"
+
+    @property
+    def excel_round_minutes(self) -> int:
+        """Summe je Projekt und Tag im Stundenzettel auf diese Minuten runden (0 = nicht runden)."""
+        try:
+            value = int(self.db.get_setting("excel_round_minutes"))
+        except ValueError:
+            return 5
+        return value if value in self.EXCEL_ROUND_STEPS else 5
+
+    def set_excel_format(self, time_format: str, round_minutes: int) -> None:
+        self.db.set_setting("excel_time_format", "time" if time_format == "time" else "decimal")
+        self.db.set_setting("excel_round_minutes", str(round_minutes if round_minutes in self.EXCEL_ROUND_STEPS else 5))
 
     def set_pause(self, start: time, minutes: int) -> None:
         self.db.set_setting("pause_start", start.strftime("%H:%M"))
@@ -418,7 +532,9 @@ class TimeService:
         self.db.set_setting("hotkey", text)
 
     def set_daily_target(self, minutes: int) -> None:
+        """Tagessoll bei 100 % setzen (entspricht einer Wochenarbeitszeit von 5 × `minutes`)."""
         self.db.set_setting("daily_target_minutes", str(minutes))
+        self.db.set_setting("week_target_minutes", str(minutes * 5))
 
     # --- Stammdaten ------------------------------------------------------
     def projects(self, favorites_only: bool = False):
@@ -648,15 +764,20 @@ class TimeService:
         Eine noch bevorstehende Mittagspause wird eingerechnet (sie verschiebt das Ende um ihre Dauer).
         None, wenn das Soll schon erreicht ist."""
         now = now or self.now()
-        remaining = self.daily_target - self.work_total(entries, now)
+        target = self.target_for(now.date())
+        remaining = target - self.work_total(entries, now)
         if remaining <= timedelta(0):
             return None
         window = self.lunch_window(now.date())
         end = now + remaining
+        overlap = timedelta(0)
         if window:  # das Ende verschiebt sich um den Teil der Pause, der noch vor ihm liegt
             for _ in range(3):
                 overlap = max(min(end, window[1]) - max(now, window[0]), timedelta(0))
                 end = now + remaining + overlap
+        if self.lunch_mode != "off":   # fehlt bis zur Mindestpause noch etwas, kommt es obendrauf
+            have = self.paused_total(now.date()) + self.lunch_total(entries, now) + overlap
+            end += max(self.min_pause(target) - have, timedelta(0))
         return end
 
     def lunch_total(self, entries: list[Entry], now: datetime | None = None) -> timedelta:
@@ -768,6 +889,9 @@ class TimeService:
         """Wendet die Pausenautomatik auf heute an; True wenn sich etwas geändert hat."""
         closed = self.close_stale()
         today = self.now().date()
+        if getattr(self, "_settled_on", None) != today:   # Mindestpause vergangener Tage: einmal pro Tag prüfen
+            self._settled_on = today
+            closed = self.settle_min_pauses() or closed
         old, new = self._run(today, lambda es, now: es, save=False)
         if old == new:
             return closed

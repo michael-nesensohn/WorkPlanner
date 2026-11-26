@@ -72,8 +72,8 @@ def test_saving_other_settings_does_not_create_or_pick_a_default_project(qapp, t
     w = MainWindow(svc)
     svc.db.add_project("Erstes echtes Projekt")
     w.master.reload()
-    from PySide6.QtCore import QTime
-    w.master.target.setTime(QTime(7, 30))                     # löst „Einstellungen speichern“ aus
+    w.master.week_edit.setText("37:30")
+    w.master.week_edit.editingFinished.emit()                 # löst „Einstellungen speichern“ aus
     assert svc.daily_target.total_seconds() == 7.5 * 3600
     assert svc.db.get_setting("default_project_id") == ""      # das erste Projekt wurde NICHT stillschweigend zum Standard
 

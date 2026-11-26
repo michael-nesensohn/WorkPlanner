@@ -8,8 +8,8 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QMessageBox, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QLabel,
                                QPushButton, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
-from ..excel_timesheet import (DayHours, ExcelError, ExcelWorkbook, Plan, aggregate, apply_plan, plan_all,
-                               read_sheet_view)
+from ..excel_timesheet import (DayHours, ExcelError, ExcelWorkbook, Plan, aggregate, apply_plan, hours_text,
+                               plan_all, read_sheet_view)
 from ..service import TimeService
 from .background import BackgroundRunner
 from .sheet_preview import SheetPreview
@@ -126,7 +126,8 @@ class ExcelExportDialog(QDialog):
         if last < first:
             self.status.setText("<span style='color:#c0392b'>⚠ „bis“ liegt vor „Von“.</span>")
             return
-        items = aggregate(self.svc.report_rows(first, last), self.svc.excel_include_pause)  # Datenbank nur im GUI-Thread lesen
+        items = aggregate(self.svc.report_rows(first, last), self.svc.excel_include_pause, self.svc.excel_round_minutes,
+                          self.svc.excel_time_format == "time")  # Datenbank nur im GUI-Thread lesen
         done = self.svc.excel_exported(first, last) if self.skip_done.isChecked() else {}
         self._items = [it for it in items if abs(done.get((it.day.isoformat(), self._mark_key(it)), -1) - it.hours) > 1e-6]
         self._skipped = len(items) - len(self._items)
@@ -167,8 +168,9 @@ class ExcelExportDialog(QDialog):
         self.table.setRowCount(len(plan.lines))
         replaced = 0
         for r, ln in enumerate(plan.lines):
-            old = "" if ln.old is None else (f"{ln.old:g}" if isinstance(ln.old, (int, float)) else str(ln.old))
-            vals = [f"{ln.day:%d.%m.%Y}", ln.project, f"{ln.hours:.2f}", f"{ln.sheet.strip()}  {ln.address}",
+            old = ("" if ln.old is None else hours_text(ln.old * 24, True) if ln.as_time and isinstance(ln.old, (int, float))
+                   else f"{ln.old:g}" if isinstance(ln.old, (int, float)) else str(ln.old))
+            vals = [f"{ln.day:%d.%m.%Y}", ln.project, hours_text(ln.hours, ln.as_time), f"{ln.sheet.strip()}  {ln.address}",
                     ln.action, old + ("  → ersetzt" if ln.overwrites else "")]
             replaced += ln.overwrites
             if ln.overwrites and self.conflict.currentData() == "excel":

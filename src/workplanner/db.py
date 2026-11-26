@@ -60,15 +60,21 @@ CREATE TABLE IF NOT EXISTS project_versions (project_id INTEGER NOT NULL, valid_
 CREATE TABLE IF NOT EXISTS day_flags (day TEXT PRIMARY KEY, pause_disabled INTEGER NOT NULL DEFAULT 0);
 -- Tage, an denen eine Aufgabe über Mitternacht lief (um 00:00 getrennt): bis zur Bestätigung rot angezeigt
 CREATE TABLE IF NOT EXISTS midnight_days (day TEXT PRIMARY KEY, confirmed INTEGER NOT NULL DEFAULT 0);
+-- Tage, für die die Mindestpause schon geprüft wurde (eine gelöschte automatische Pause kommt nicht wieder)
+CREATE TABLE IF NOT EXISTS min_pause_settled (day TEXT PRIMARY KEY);
 """
 
-DEFAULT_SETTINGS = {"pause_start": "12:00", "pause_minutes": "30", "daily_target_minutes": "480",
+DEFAULT_SETTINGS = {"pause_start": "12:00", "pause_minutes": "25", "daily_target_minutes": "480",
+                    # Wochenarbeitszeit bei Vollzeit (leer: Tagessoll × 5), Beschäftigungsgrad Mo–So in %,
+                    # Mindestpause: bis `limit` Minuten Arbeitszeit `short` Minuten, darüber `long` Minuten
+                    "week_target_minutes": "", "day_percent": "100,100,100,100,100,0,0",
+                    "min_pause_limit": "300", "min_pause_short": "15", "min_pause_long": "25", "min_pause_since": "",
                     "default_project_id": "", "devops_org": "",
                     "devops_project": "", "devops_team": "",
                     "devops_only_mine": "1", "devops_pat": "", "devops_col_widths": "",
                     "hotkey": "Ctrl+Alt+W", "excel_path": "", "excel_save": "1", "excel_profile": "", "duration_anchor": "start", "tray_mode": "1", "start_in_tray": "1",
                     "devops_features_cache": "", "devops_titles": "", "export_columns": "", "call_monitor": "1", "split_widths": "", "db_warn_mb": "50", "master_size": "", "main_geometry": "", "devops_enabled": "1", "manual_geometry": "", "demo_data": "", "demo_offered": "",
-                    "call_project_id": "", "call_activity_id": "", "lunch_mode": "ask", "excel_include_pause": "0", "pdf_header": "", "pdf_layout": "", "excel_conflict": "ask",
+                    "call_project_id": "", "call_activity_id": "", "lunch_mode": "ask", "excel_include_pause": "0", "excel_time_format": "decimal", "excel_round_minutes": "5", "pdf_header": "", "pdf_layout": "", "excel_conflict": "ask",
                     "day_view": "list", "theme": "light", "excel_backup": "0", "excel_backup_path": "C:\\temp\\Stundenzettel"}
 _FMT = "%Y-%m-%dT%H:%M:%S"
 
@@ -251,6 +257,13 @@ class Database:
 
     def confirm_midnight(self, day: date) -> None:
         self.conn.execute("INSERT OR REPLACE INTO midnight_days (day, confirmed) VALUES (?, 1)", (day.isoformat(),))
+        self.conn.commit()
+
+    def min_pause_settled(self, day: date) -> bool:
+        return self.conn.execute("SELECT 1 FROM min_pause_settled WHERE day = ?", (day.isoformat(),)).fetchone() is not None
+
+    def mark_min_pause_settled(self, day: date) -> None:
+        self.conn.execute("INSERT OR IGNORE INTO min_pause_settled VALUES (?)", (day.isoformat(),))
         self.conn.commit()
 
     def pause_disabled(self, day: date) -> bool:

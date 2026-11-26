@@ -140,15 +140,15 @@ def test_new_button_stops_running_and_starts_next(qapp):
 
 
 def test_daily_target_hours_and_minutes(qapp):
-    from PySide6.QtCore import QTime
     db = Database()
     seed(db)
     svc = TimeService(db, Clock(8, 0))
     w = MainWindow(svc)
-    w.master.target.setTime(QTime(7, 45))
+    w.master.week_edit.setText("38:45")      # Wochenarbeitszeit; Tagessoll = ein Fünftel
+    w.master.week_edit.editingFinished.emit()
     assert svc.daily_target.total_seconds() == (7 * 60 + 45) * 60
     w.master.reload()
-    assert w.master.target.time() == QTime(7, 45)
+    assert w.master.week_edit.text() == "38:45"
 
 
 def test_calendar_dialog_selects_day(qapp):

@@ -8,13 +8,21 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor, QFont
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 
-from ..excel_timesheet import GRID_COLS, GRID_ROWS, PlanLine, RowSetup, SheetView, col_letter, display_text
+from ..excel_timesheet import (GRID_COLS, GRID_ROWS, PlanLine, RowSetup, SheetView, col_letter, display_text,
+                               hours_text)
 
 NEW_BG, REPLACE_BG, SETUP_BG = QColor("#c6efce"), QColor("#fcd9a6"), QColor("#e2f0d9")
 
 
-def _number(v: float) -> str:
-    return f"{v:g}".replace(".", ",")
+def _number(v: float, as_time: bool = False) -> str:
+    return hours_text(v, True) if as_time else f"{v:g}".replace(".", ",")
+
+
+def _old(ln: PlanLine) -> str:
+    """Bisheriger Zellwert; bei Excel-Zeit (Bruchteil eines Tages) als Std:Min."""
+    if ln.as_time and isinstance(ln.old, (int, float)):
+        return hours_text(ln.old * 24, True)
+    return display_text(ln.old)
 
 
 class SheetPreview(QTableWidget):
@@ -38,10 +46,10 @@ class SheetPreview(QTableWidget):
             over[s.row, s.col] = (s.value, SETUP_BG, "neue Projektzeile")
         for ln in lines:
             if ln.overwrites:
-                over[ln.row, ln.col] = (f"{_number(ln.hours)}  (bisher {display_text(ln.old)})", REPLACE_BG,
-                                        f"ersetzt {display_text(ln.old)} durch {_number(ln.hours)}: {ln.project}")
+                over[ln.row, ln.col] = (f"{_number(ln.hours, ln.as_time)}  (bisher {_old(ln)})", REPLACE_BG,
+                                        f"ersetzt {_old(ln)} durch {_number(ln.hours, ln.as_time)}: {ln.project}")
             else:
-                over[ln.row, ln.col] = (_number(ln.hours), NEW_BG, f"neu: {ln.project}")
+                over[ln.row, ln.col] = (_number(ln.hours, ln.as_time), NEW_BG, f"neu: {ln.project}")
         for r, row in enumerate(view.grid, 1):
             for c, value in enumerate(row, 1):
                 style, mark = view.styles.get((r, c)), over.get((r, c))

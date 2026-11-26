@@ -4,8 +4,8 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date, time, timedelta
 
-from PySide6.QtCore import QDate, QRect, QTime, Qt, Signal
-from PySide6.QtGui import QColor, QFontMetrics, QKeySequence
+from PySide6.QtCore import QDate, QRect, QRegularExpression, QTime, Qt, Signal
+from PySide6.QtGui import QColor, QFontMetrics, QKeySequence, QRegularExpressionValidator
 from PySide6.QtWidgets import (QApplication, QCheckBox, QColorDialog, QComboBox, QDateEdit, QDialog, QDialogButtonBox,
                                QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QKeySequenceEdit, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton, QScrollArea,
@@ -162,8 +162,36 @@ class MasterDataPage(QWidget):
         self.lunch_mode.setToolTip("Nachfragen: zur Mittagspause erscheint „Pause starten?“. Die Pause wird dann als "
                                    "Eintrag angelegt, die Aufgabe läuft danach weiter (bis dahin wird sie abgezogen). Kein Pausenabzug: die "
                                    "Mittagspause ist ganz abgeschaltet.")
-        self.target = QTimeEdit()
-        self.target.setDisplayFormat("HH:mm")
+        self.week_edit = QLineEdit()   # Std:Min, auch über 24 Stunden (QTimeEdit geht nur bis 23:59)
+        self.week_edit.setFixedWidth(80)
+        self.week_edit.setValidator(QRegularExpressionValidator(QRegularExpression(r"\d{1,3}:[0-5]\d")))
+        self.week_edit.setToolTip("Wochenarbeitszeit bei Vollzeit, z. B. 40:00. Das Tagessoll bei 100 % ist ein Fünftel davon.")
+        self.day_pct = []
+        pct_row = QHBoxLayout()
+        for name in MONDAY_NAMES:
+            box = QSpinBox()
+            box.setRange(0, 100)
+            box.setSuffix(" %")
+            box.setToolTip(f"Beschäftigungsgrad am {name}: 100 % = volles Tagessoll, 0 % = frei")
+            self.day_pct.append(box)
+            col = QVBoxLayout()
+            lab = QLabel(name)
+            lab.setAlignment(Qt.AlignCenter)
+            lab.setStyleSheet("color:#33415c;font-weight:600")
+            col.addWidget(lab)
+            col.addWidget(box)
+            pct_row.addLayout(col)
+        pct_row.addStretch(1)
+        self.week_sum = QLabel()
+        self.week_sum.setStyleSheet("color:#2F5597;font-weight:600")
+        self.minpause_limit = QTimeEdit()
+        self.minpause_limit.setDisplayFormat("HH:mm")
+        self.minpause_short = QSpinBox()
+        self.minpause_short.setRange(0, 240)
+        self.minpause_short.setSuffix(" min")
+        self.minpause_long = QSpinBox()
+        self.minpause_long.setRange(0, 240)
+        self.minpause_long.setSuffix(" min")
         self.default_project = QComboBox()
         sf.addRow("Standardprojekt (Start ohne Auswahl)", self.default_project)
         self.theme_box = QComboBox()
@@ -214,7 +242,20 @@ class MasterDataPage(QWidget):
         sf.addRow("Mittagspause ab (wird abgezogen)", self.pause_start)
         sf.addRow("Pausendauer", self.pause_min)
         sf.addRow("Mittagspause", self.lunch_mode)
-        sf.addRow("Soll-Arbeitszeit pro Tag (Std:Min)", self.target)
+        sf.addRow("Wochenarbeitszeit bei Vollzeit (Std:Min)", self.week_edit)
+        sf.addRow("Beschäftigungsgrad je Wochentag", pct_row)
+        sf.addRow("", self.week_sum)
+        pause_row = QHBoxLayout()
+        for w in (QLabel("bis"), self.minpause_limit, QLabel("h Arbeitszeit"), self.minpause_short,
+                  QLabel("darüber"), self.minpause_long):
+            pause_row.addWidget(w)
+        pause_row.addStretch(1)
+        sf.addRow("Mindestpause pro Tag", pause_row)
+        hint = QLabel("Fehlt am Tagesende Pause bis zur Mindestpause, legt WorkPlanner beim nächsten Start einen "
+                      "Pause-Eintrag an. Die Ende-Prognose in „Heute“ rechnet sie mit ein.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#667")
+        sf.addRow("", hint)
 
         top = QHBoxLayout()
         top.addWidget(pbox, 1)
@@ -284,6 +325,18 @@ class MasterDataPage(QWidget):
         xl.addRow("Vorlage", qrow)
         xl.addRow("", self.excel_save)
         xl.addRow("", self.excel_pause)
+        self.excel_format = QComboBox()
+        self.excel_format.addItem("Industriezeit (1,25 = 1 h 15 min)", "decimal")
+        self.excel_format.addItem("Stunden:Minuten (1:15, als Excel-Zeit)", "time")
+        self.excel_format.setToolTip("Wie die Zeit in die Zellen des Stundenzettels geschrieben wird. Std:Min wird als echte "
+                                     "Excel-Zeit mit Zellformat [h]:mm eingetragen (Excel kann damit weiterrechnen).")
+        self.excel_round = QComboBox()
+        for minutes in TimeService.EXCEL_ROUND_STEPS:
+            self.excel_round.addItem("nicht runden" if minutes == 0 else f"auf {minutes} min runden", minutes)
+        self.excel_round.setToolTip("Die Summe je Projekt und Tag wird vor dem Eintragen auf volle Minutenschritte gerundet "
+                                    "(ab der Hälfte auf). Beispiel 5 min: 1:48 → 1:50 (1,83), 1:47 → 1:45 (1,75).")
+        xl.addRow("Zeitformat im Stundenzettel", self.excel_format)
+        xl.addRow("Runden", self.excel_round)
         xl.addRow("", self.excel_backup)
         xl.addRow("Sicherung in", brow)
         xl.addRow("", self.excel_status)
@@ -324,13 +377,20 @@ class MasterDataPage(QWidget):
         for w in (self.pause_start,):
             w.timeChanged.connect(self._save_settings)
         self.pause_min.valueChanged.connect(self._save_settings)
-        self.target.timeChanged.connect(self._save_settings)
+        self.week_edit.editingFinished.connect(self._save_settings)
+        for box in self.day_pct:
+            box.valueChanged.connect(self._save_settings)
+        self.minpause_limit.timeChanged.connect(self._save_settings)
+        self.minpause_short.valueChanged.connect(self._save_settings)
+        self.minpause_long.valueChanged.connect(self._save_settings)
         self.default_project.currentIndexChanged.connect(self._save_settings)
         self.excel_path.editingFinished.connect(self._save_excel)
         self.excel_save.clicked.connect(lambda _: self._save_excel())
         self.excel_backup.clicked.connect(lambda _: self._save_excel())
         self.excel_backup_path.editingFinished.connect(self._save_excel)
         self.excel_pause.clicked.connect(lambda _: self._save_excel())
+        self.excel_format.currentIndexChanged.connect(lambda _: self._save_excel())
+        self.excel_round.currentIndexChanged.connect(lambda _: self._save_excel())
         self.lunch_mode.currentIndexChanged.connect(self._save_settings)
         self.theme_box.currentIndexChanged.connect(self._theme_picked)
         self.autostart_cb.clicked.connect(self._autostart_changed)
@@ -378,7 +438,7 @@ class MasterDataPage(QWidget):
             it = QListWidgetItem(f"{a['name']}   ({scope})")
             it.setData(256, a["id"])
             self.activities.addItem(it)
-        for w in (self.pause_start, self.pause_min, self.target, self.default_project, self.lunch_mode):
+        for w in self._setting_widgets():
             w.blockSignals(True)
         self.default_project.clear()
         current = self.svc.default_project_id(create=False)
@@ -391,6 +451,10 @@ class MasterDataPage(QWidget):
         self.excel_path.setText(self.svc.excel_path)
         self.excel_save.setChecked(self.svc.excel_save)
         self.excel_pause.setChecked(self.svc.excel_include_pause)
+        for box, value in ((self.excel_format, self.svc.excel_time_format), (self.excel_round, self.svc.excel_round_minutes)):
+            box.blockSignals(True)
+            box.setCurrentIndex(max(0, box.findData(value)))
+            box.blockSignals(False)
         self.excel_backup.setChecked(self.svc.excel_backup)
         self.excel_backup_path.setText(self.svc.excel_backup_path)
         self.excel_backup_path.setEnabled(self.svc.excel_backup)
@@ -419,10 +483,40 @@ class MasterDataPage(QWidget):
         self.theme_box.blockSignals(True)
         self.theme_box.setCurrentIndex(max(0, self.theme_box.findData(self.svc.theme)))
         self.theme_box.blockSignals(False)
-        tm = int(self.svc.daily_target.total_seconds() // 60)
-        self.target.setTime(QTime(tm // 60, tm % 60))
-        for w in (self.pause_start, self.pause_min, self.target, self.default_project, self.lunch_mode):
+        wm = int(self.svc.week_full.total_seconds() // 60)
+        self.week_edit.setText(f"{wm // 60}:{wm % 60:02d}")
+        for box, p in zip(self.day_pct, self.svc.day_percents):
+            box.setValue(p)
+        limit, short, long = self.svc.min_pause_setting
+        lm = int(limit.total_seconds() // 60)
+        self.minpause_limit.setTime(QTime(min(23, lm // 60), lm % 60))
+        self.minpause_short.setValue(int(short.total_seconds() // 60))
+        self.minpause_long.setValue(int(long.total_seconds() // 60))
+        self._update_week_sum()
+        for w in self._setting_widgets():
             w.blockSignals(False)
+
+    def _setting_widgets(self) -> list:
+        return [self.pause_start, self.pause_min, self.week_edit, *self.day_pct, self.minpause_limit,
+                self.minpause_short, self.minpause_long, self.default_project, self.lunch_mode]
+
+    def _week_minutes(self) -> int | None:
+        try:
+            h, m = self.week_edit.text().split(":")
+            return int(h) * 60 + int(m)
+        except ValueError:
+            return None
+
+    def _update_week_sum(self) -> None:
+        """Zeigt das Wochensoll aus Wochenarbeitszeit und Beschäftigungsgrad der Tage."""
+        week = self._week_minutes()
+        if week is None:
+            self.week_sum.setText("")
+            return
+        sums = sum(week / 5 * box.value() / 100 for box in self.day_pct)
+        share = round(sums / week * 100) if week else 0
+        self.week_sum.setText(f"Wochensoll: {int(sums) // 60}:{round(sums) % 60:02d} h  =  {share} % von "
+                              f"{week // 60}:{week % 60:02d} h")
 
     def _save_pdf_layout(self) -> None:
         self.svc.set_pdf_layout(self.pdf_heading.value(), self.pdf_text.value(), self.pdf_landscape.isChecked())
@@ -433,6 +527,7 @@ class MasterDataPage(QWidget):
     def _save_excel(self) -> None:
         self.svc.set_excel(self.excel_path.text(), self.excel_save.isChecked())
         self.svc.set_excel_include_pause(self.excel_pause.isChecked())
+        self.svc.set_excel_format(self.excel_format.currentData(), self.excel_round.currentData())
         self.svc.set_excel_backup(self.excel_backup.isChecked(), self.excel_backup_path.text())
         self.excel_backup_path.setEnabled(self.excel_backup.isChecked())
         self.changed.emit()  # die Berichte-Seite aktiviert ihren Knopf, sobald eine Datei eingestellt ist
@@ -526,7 +621,13 @@ class MasterDataPage(QWidget):
         t = self.pause_start.time()
         self.svc.set_pause(time(t.hour(), t.minute()), self.pause_min.value())
         self.svc.set_lunch_mode(self.lunch_mode.currentData())
-        self.svc.set_daily_target(self.target.time().hour() * 60 + self.target.time().minute())
+        week = self._week_minutes()
+        if week is not None:
+            self.svc.set_week_full(week)
+        self.svc.set_day_percents([box.value() for box in self.day_pct])
+        lim = self.minpause_limit.time()
+        self.svc.set_min_pause(lim.hour() * 60 + lim.minute(), self.minpause_short.value(), self.minpause_long.value())
+        self._update_week_sum()
         if self.default_project.currentData() is not None:
             self.svc.set_default_project(self.default_project.currentData())
         self.changed.emit()
@@ -633,7 +734,8 @@ ENTRY_COLUMNS = ["Start", "Ende", "Dauer", "Verr.", "Projekt", "Tätigkeit", "De
 
 class WeekPage(QWidget):
     """Woche: „Übersicht“ (Summen je Tag und Projekt) und „Einträge“ (jeder Tag mit allen Buchungen und Notizen)."""
-    open_day = Signal(object)  # date: Doppelklick auf einen Tag bzw. Eintrag
+    open_day = Signal(object)  # date: Doppelklick auf eine Tageszeile
+    entries_changed = Signal()  # ein Eintrag wurde per Doppelklick geändert
 
     def __init__(self, service: TimeService):
         super().__init__()
@@ -656,8 +758,12 @@ class WeekPage(QWidget):
         nav.addWidget(self.show_pauses)
 
         # Übersicht
-        self.days = QTableWidget(0, 6)
-        self.days.setHorizontalHeaderLabels(["Tag", "Gearbeitet", "davon verrechenbar", "Soll", "Differenz", "Pausen"])
+        self.days = QTableWidget(0, 7)
+        self.days.setHorizontalHeaderLabels(["Tag", "Gearbeitet", "Gearbeitet + Pause", "davon verrechenbar", "Soll",
+                                             "Differenz", "Pausen"])
+        self.days.horizontalHeader().setToolTip(
+            "„Gearbeitet + Pause“: Arbeitszeit plus Pause. Ist das Tagessoll erreicht, mindestens die vorgeschriebene "
+            "Mindestpause (Einstellungen).")
         self.projects = QTableWidget(0, 2)
         self.projects.setHorizontalHeaderLabels(["Projekt", "Stunden"])
         for t in (self.days, self.projects):
@@ -675,7 +781,7 @@ class WeekPage(QWidget):
         self.entries.setEditTriggers(QTableWidget.NoEditTriggers)
         self.entries.setSelectionBehavior(QTableWidget.SelectRows)
         self.entries.setWordWrap(True)
-        self.entries.setToolTip("Doppelklick öffnet den Tag in „Heute“ (dort lässt sich der Eintrag bearbeiten)")
+        self.entries.setToolTip("Doppelklick auf einen Eintrag bearbeitet ihn, auf eine Tageszeile öffnet den Tag in „Heute“")
         self.entries.verticalHeader().setVisible(False)
         hh = self.entries.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.ResizeToContents)
@@ -715,16 +821,22 @@ class WeekPage(QWidget):
                 per_project[r["project"]] += r["duration"]
         self.days.setRowCount(8)
         total = timedelta()
+        with_pause_total = timedelta()
         for i in range(7):
             d = self.monday + timedelta(days=i)
             worked = per_day[d]
-            target = self.svc.daily_target if d.weekday() < 5 else timedelta()
+            target = self.svc.target_for(d)
             total += worked
+            # Pause dazurechnen: eingetragene Pausen; ist das Soll erreicht, mindestens die Mindestpause
+            pause = pause_day[d]
+            if worked > timedelta() and worked >= target:
+                pause = max(pause, self.svc.min_pause(worked))
+            with_pause_total += worked + pause
             self._row(self.days, i, [f"{MONDAY_NAMES[i]} {d:%d.%m.}", fmt_duration(worked),
-                                     fmt_duration(billable_day[d]), fmt_duration(target),
-                                     self._diff(worked - target), fmt_duration(pause_day[d])])
-        week_target = self.svc.daily_target * 5
-        self._row(self.days, 7, ["Summe", fmt_duration(total),
+                                     fmt_duration(worked + pause), fmt_duration(billable_day[d]),
+                                     fmt_duration(target), self._diff(worked - target), fmt_duration(pause_day[d])])
+        week_target = self.svc.week_target(self.monday)
+        self._row(self.days, 7, ["Summe", fmt_duration(total), fmt_duration(with_pause_total),
                                  fmt_duration(sum(billable_day.values(), timedelta())),
                                  fmt_duration(week_target), self._diff(total - week_target),
                                  fmt_duration(sum(pause_day.values(), timedelta()))], bold=True)
@@ -752,7 +864,7 @@ class WeekPage(QWidget):
                 continue  # Wochenende nur zeigen, wenn dort etwas gebucht wurde
             r = add_row()
             text = f"{DAY_NAMES[i]} {d:%d.%m.%Y}"
-            target = self.svc.daily_target if d.weekday() < 5 else timedelta()
+            target = self.svc.target_for(d)
             text += (f"   ·   Gearbeitet {fmt_duration(per_day[d])} h   ·   davon verrechenbar "
                      f"{fmt_duration(billable_day[d])} h   ·   Soll {fmt_duration(target)} h   ·   "
                      f"Differenz {self._diff(per_day[d] - target)}"
@@ -780,6 +892,7 @@ class WeekPage(QWidget):
                 for c, v in enumerate(vals):
                     it = QTableWidgetItem(v)
                     it.setData(Qt.UserRole, d)
+                    it.setData(Qt.UserRole + 1, e["id"])   # Doppelklick bearbeitet genau diesen Eintrag
                     if c == 3:
                         it.setTextAlignment(Qt.AlignCenter)
                     if c == 2 and e["lunch"]:
@@ -792,8 +905,8 @@ class WeekPage(QWidget):
                     it.setFlags(it.flags() & ~Qt.ItemIsEditable)
                     t.setItem(r, c, it)
         r = add_row()
-        week_target = self.svc.daily_target * 5
-        tot = QTableWidgetItem(f"Woche gesamt: {fmt_duration(total)} h   ·   davon verrechenbar "
+        week_target = self.svc.week_target(self.monday)
+        tot =QTableWidgetItem(f"Woche gesamt: {fmt_duration(total)} h   ·   davon verrechenbar "
                                f"{fmt_duration(sum(billable_day.values(), timedelta()))} h   ·   "
                                f"Wochenstunden Soll {fmt_duration(week_target)} h   ·   "
                                f"Differenz {self._diff(total - week_target)} h"
@@ -808,10 +921,20 @@ class WeekPage(QWidget):
         t.resizeRowsToContents()
 
     def _entry_double_clicked(self, row: int, _column: int) -> None:
+        """Doppelklick auf einen Eintrag: bearbeiten (wie unter „Heute“); auf die Tageszeile: den Tag unter „Heute“ öffnen."""
         item = self.entries.item(row, 0)
         day = item.data(Qt.UserRole) if item else None
-        if day is not None:
+        if day is None:
+            return
+        entry_id = item.data(Qt.UserRole + 1)
+        entry = self.svc.db.get_entry(entry_id) if entry_id else None
+        if entry is None:
             self.open_day.emit(day)
+            return
+        from .dialogs import EntryDialog
+        if EntryDialog(self.svc, entry.start.date(), entry, parent=self.window()).exec():
+            self.refresh()
+            self.entries_changed.emit()
 
     @staticmethod
     def _diff(td: timedelta) -> str:
@@ -1015,7 +1138,7 @@ class ReportPage(QWidget):
         if not path:
             return
         try:
-            export_pdf(path, self._rows(with_pauses=True), self.svc.daily_target, a, b,
+            export_pdf(path, self._rows(with_pauses=True), self.svc.target_for, a, b,
                        self.project.currentText() if self.project.currentData() is not None else "",
                        mode=self.pdf_mode.currentData(), columns=self._columns(),
                        show_pauses=self.show_pauses.isChecked(), header=self.svc.pdf_header,
@@ -1035,7 +1158,7 @@ class ReportPage(QWidget):
         if not path:
             return
         try:
-            export_excel(path, self._rows(with_pauses=True), self.svc.daily_target, self._columns(),
+            export_excel(path, self._rows(with_pauses=True), self.svc.target_for, self._columns(),
                          show_pauses=self.show_pauses.isChecked())
         except OSError as ex:
             QMessageBox.warning(self, "Export", f"Datei konnte nicht geschrieben werden:\n{ex}")

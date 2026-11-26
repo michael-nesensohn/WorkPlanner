@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import calendar
 import json
+import math
 import os
 import re
 import time as _time
@@ -30,6 +31,7 @@ MONTH_NAMES = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "Au
 WEEKDAY_LABELS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa"]  # Sonntag hat keine Spalte
 GRID_ROWS, GRID_COLS = 80, 60
 ROUND_DIGITS = 2
+TIME_FORMAT = "[h]:mm"   # Zellformat für Stunden als Excel-Zeit (auch über 24 Stunden)
 
 
 class ExcelError(Exception):
@@ -138,6 +140,7 @@ class DayHours:
     number: str   # Projektnummer ("" = keine)
     name: str
     hours: float
+    as_time: bool = False   # als Excel-Zeit (Std:Min, Zellformat [h]:mm) statt als Industriezeit (1,25) eintragen
 
     @property
     def key(self) -> tuple[str, str]:
@@ -149,9 +152,25 @@ class DayHours:
         return f"{self.number}  {self.name}" if self.number.strip() else self.name
 
 
-def aggregate(rows: list[dict], include_pause: bool = False) -> list[DayHours]:
+def round_minutes(minutes: float, step: int) -> float:
+    """Auf volle `step` Minuten runden (kaufmännisch: ab der Hälfte auf); `step` ≤ 0: nicht runden."""
+    return float(math.floor(minutes / step + 0.5) * step) if step > 0 else minutes
+
+
+def hours_text(hours: float, as_time: bool = False) -> str:
+    """Eingetragener Wert zur Anzeige: „1:50“ (Std:Min) bzw. „1,83“ (Industriezeit)."""
+    if as_time:
+        total = int(round(hours * 60))
+        return f"{total // 60}:{total % 60:02d}"
+    return f"{hours:.2f}"
+
+
+def aggregate(rows: list[dict], include_pause: bool = False, step_minutes: int = 0,
+              as_time: bool = False) -> list[DayHours]:
     """Fasst `TimeService.report_rows` je Projekt und Tag zusammen (Arbeitszeit, Dauer ohne Mittagspause; mit
-    `include_pause` zusätzlich die als Eintrag angelegten Pausen unter dem Namen „Pause“)."""
+    `include_pause` zusätzlich die als Eintrag angelegten Pausen unter dem Namen „Pause“).
+    `step_minutes`: Summe je Projekt und Tag auf diese Minuten runden (0 = nicht runden, nur auf 2 Stellen).
+    `as_time`: Werte als Excel-Zeit (Std:Min) statt als Industriezeit eintragen."""
     sums: dict[tuple, float] = defaultdict(float)
     meta: dict[tuple, tuple[str, str]] = {}
     order: list[tuple] = []
@@ -164,7 +183,11 @@ def aggregate(rows: list[dict], include_pause: bool = False) -> list[DayHours]:
             order.append(key)
             meta[key] = (number, name)
         sums[key] += r["duration"].total_seconds() / 3600
-    out = [DayHours(k[0], *meta[k], round(sums[k], ROUND_DIGITS)) for k in order]
+    def value(hours: float) -> float:
+        if step_minutes > 0:
+            hours = round_minutes(hours * 60, step_minutes) / 60
+        return hours if as_time else round(hours, ROUND_DIGITS)
+    out = [DayHours(k[0], *meta[k], value(sums[k]), as_time) for k in order]
     return sorted([d for d in out if d.hours > 0], key=lambda d: (d.day, d.label.casefold()))
 
 
@@ -302,6 +325,12 @@ class PlanLine:
     old: object          # bisheriger Wert der Zelle (None = leer)
     action: str          # „vorhanden“ | „neue Zeile (Nr.)“ | „neue Zeile (Name)“
     new_row: bool = False
+    as_time: bool = False   # Stunden als Excel-Zeit (Bruchteil eines Tages) schreiben
+
+    @property
+    def cell_value(self) -> float:
+        """Was in die Zelle geschrieben wird: Industriezeit oder Bruchteil eines Tages (Excel-Zeit)."""
+        return self.hours / 24 if self.as_time else self.hours
 
     @property
     def address(self) -> str:
@@ -313,7 +342,7 @@ class PlanLine:
         if _is_zero(self.old):
             return False
         try:
-            return abs(float(self.old) - self.hours) > 1e-9
+            return abs(float(self.old) - self.cell_value) > 1e-6 / (24 if self.as_time else 1)
         except (TypeError, ValueError):
             return True
 
@@ -444,7 +473,7 @@ def plan_month(sheet: SheetAccess, month: int, year: int, items: list[DayHours],
             continue
         old = cell(row, col)
         plan.lines.append(PlanLine(sheet.name, it.day, it.label, it.hours, row, col,
-                                   None if _is_zero(old) else old, action, new))
+                                   None if _is_zero(old) else old, action, new, it.as_time))
     return plan
 
 
@@ -525,7 +554,11 @@ def apply_plan(workbook: "WorkbookAccess", plan: Plan) -> int:
             if _text(shown) in ("", "0") or str(shown).startswith("#"):
                 sheet.set_value(s.row, col, name)
     for line in plan.lines:
-        workbook.sheet(line.sheet).set_value(line.row, line.col, line.hours)
+        sheet = workbook.sheet(line.sheet)
+        set_format = getattr(sheet, "set_number_format", None)
+        if line.as_time and set_format:
+            set_format(line.row, line.col, TIME_FORMAT)   # sonst zeigt Excel den Bruchteil eines Tages (0,0764)
+        sheet.set_value(line.row, line.col, line.cell_value)
     return len(plan.lines)
 
 
@@ -759,6 +792,9 @@ class ComSheet:
 
     def set_value(self, row: int, col: int, value) -> None:
         self._retry(lambda: setattr(self._ws.Cells(row, col), "Value2", value))
+
+    def set_number_format(self, row: int, col: int, fmt: str) -> None:
+        self._retry(lambda: setattr(self._ws.Cells(row, col), "NumberFormat", fmt))
 
     def set_text(self, row: int, col: int, text: str) -> None:
         """Trägt Text ein und lässt ihn Text bleiben (Zellformat „Text“): Excel macht aus „4711“ sonst eine Zahl."""

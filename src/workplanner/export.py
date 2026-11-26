@@ -83,7 +83,8 @@ def export_excel(path: str | Path, rows: list[dict], daily_target: timedelta,
         billable = _sum(r["duration"] for r in rows if r["date"] == d and r["billable"])
         pause = (_sum(r["duration"] for r in rows if r["date"] == d and r["kind"] == "pause")
                  + _sum(r["lunch"] for r in rows if r["date"] == d))   # Mittagspause: in der Arbeitszeit abgezogen
-        target = daily_target if d.weekday() < 5 else timedelta()
+        # `daily_target`: Soll je Tag (Funktion Tag → Dauer) oder ein fester Wert für Mo–Fr
+        target = daily_target(d) if callable(daily_target) else daily_target if d.weekday() < 5 else timedelta()
         ws.append([d, WEEKDAYS[d.weekday()], work, billable, pause, target, None])
         i = ws.max_row
         ws.cell(i, 7).value = f"=C{i}-F{i}"

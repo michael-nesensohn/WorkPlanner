@@ -255,6 +255,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_today(), "Heute")
         self.week = WeekPage(service)
         self.week.open_day.connect(self._open_day_from_week)
+        self.week.entries_changed.connect(lambda: self.refresh())   # Eintrag in „Woche“ bearbeitet: Heute neu laden
         self.report = ReportPage(service)
         self.report.open_day.connect(self._open_day_from_week)   # Rechtsklick in der Vorschau: Springe zu diesem Tag
         self.report.entries_changed.connect(lambda: self.refresh())
@@ -1783,7 +1784,7 @@ class MainWindow(QMainWindow):
             self.timer_label.setText("00:00:00")
         worked = self.svc.work_total(self._entries, now)
         lunch = self.svc.lunch_total(self._entries, now)
-        target = self.svc.daily_target
+        target = self.svc.target_for(self.day)
         pause_note = (f" <span style='color:#667'>(Pause −{fmt_duration(lunch)} abgezogen)</span>" if lunch else "")
         self.total_label.setText(f"Arbeitszeit (ohne Pausen): <b>{fmt_duration(worked)} h</b>{pause_note}  /  Soll {fmt_duration(target)} h")
         pct = int(min(100, worked / target * 100)) if target else 0

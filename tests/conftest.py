@@ -65,6 +65,18 @@ def _close_windows_after_each_test():
 
 
 @pytest.fixture(autouse=True)
+def _classic_pause_defaults(request, monkeypatch):
+    """Die älteren Tests rechnen mit 30 min Mittagspause und ohne Mindestpause. Die neuen Standardwerte (25 min,
+    Mindestpause 15/25 min) prüft `tests/test_min_pause.py`; dort bleibt die Vorgabe unverändert."""
+    if request.module.__name__.endswith("test_min_pause"):
+        return
+    from workplanner import db
+    monkeypatch.setitem(db.DEFAULT_SETTINGS, "pause_minutes", "30")
+    monkeypatch.setitem(db.DEFAULT_SETTINGS, "min_pause_short", "0")
+    monkeypatch.setitem(db.DEFAULT_SETTINGS, "min_pause_long", "0")
+
+
+@pytest.fixture(autouse=True)
 def _no_blocking_overlap_question(monkeypatch):
     """Die Rückfrage „Dauer beibehalten / Kürzen“ würde im Test blockieren: Standard ist „beibehalten“."""
     try:

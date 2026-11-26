@@ -3,6 +3,25 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.30
+- **Wochenarbeitszeit und Teilzeit**: In den Einstellungen gibt es jetzt die Wochenarbeitszeit bei Vollzeit (z. B.
+  40:00) und je Wochentag einen Beschäftigungsgrad in %. Das Tagessoll ist ein Fünftel der Wochenzeit mal Prozentsatz
+  (Mittwoch 50 % = halbes Soll, Freitag 0 % = frei). Das Wochensoll wird sofort angezeigt und gilt in Woche, Heute
+  (Soll-Ende) und im Excel-Export. Bestehende Einstellungen werden übernommen.
+- **Mindestpause**: bis 5:00 h Arbeitszeit 15 min, darüber 25 min (einstellbar). Standard-Pausendauer ist jetzt 25 min.
+  Fehlt einem vergangenen Tag Pause bis zur Mindestpause, legt WorkPlanner beim nächsten Start einen Pause-Eintrag an
+  (zur Mittagszeit, sonst mitten in der längsten Aufgabe). Jeder Tag wird nur einmal geprüft: ein gelöschter Eintrag
+  kommt nicht wieder, und Tage vor dem Update bleiben unberührt. Das Soll-Ende in „Heute“ rechnet die fehlende
+  Mindestpause mit ein.
+- **Stundenzettel: Zeitformat und Runden** (Einstellungen → Excel): Die Zeit geht wahlweise als Industriezeit
+  (1,25 = 1 h 15 min) oder als Stunden:Minuten (1:15) nach Excel, dann als echte Excel-Zeit mit Zellformat `[h]:mm`.
+  Die Summe je Projekt und Tag wird vorher auf 5 Minuten gerundet (wählbar: nicht runden, 1, 5, 10, 15 min; 1:48 wird
+  1:50 = 1,83). Standard: Industriezeit, auf 5 min gerundet.
+- **Woche → Übersicht**: neue Spalte „Gearbeitet + Pause“ neben „Gearbeitet“ (ist das Tagessoll erreicht, mindestens
+  mit der Mindestpause).
+- **Woche → Einträge**: Doppelklick auf einen Eintrag bearbeitet ihn (wie unter „Heute“); Doppelklick auf die Tageszeile
+  öffnet weiterhin den Tag.
+
 ## 0.1.29
 - **Spalten rechts verschieben**: Zieht man den linken Rand von Outlook, DevOps oder der Schnellauswahl, ändert sich
   nur die Breite dieser Spalte, und die Tabelle (Notiz) wird entsprechend schmaler bzw. breiter. Keine Spalte
