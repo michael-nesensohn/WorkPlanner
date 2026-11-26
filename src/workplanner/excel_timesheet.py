@@ -141,6 +141,7 @@ class DayHours:
     name: str
     hours: float
     as_time: bool = False   # als Excel-Zeit (Std:Min, Zellformat [h]:mm) statt als Industriezeit (1,25) eintragen
+    note: str = ""          # Notizen der Einträge (nur Text, eine Zeile je Notiz) für die Zellnotiz an den Stunden
 
     @property
     def key(self) -> tuple[str, str]:
@@ -166,14 +167,16 @@ def hours_text(hours: float, as_time: bool = False) -> str:
 
 
 def aggregate(rows: list[dict], include_pause: bool = False, step_minutes: int = 0,
-              as_time: bool = False) -> list[DayHours]:
+              as_time: bool = False, with_notes: bool = False) -> list[DayHours]:
     """Fasst `TimeService.report_rows` je Projekt und Tag zusammen (Arbeitszeit, Dauer ohne Mittagspause; mit
     `include_pause` zusätzlich die als Eintrag angelegten Pausen unter dem Namen „Pause“).
     `step_minutes`: Summe je Projekt und Tag auf diese Minuten runden (0 = nicht runden, nur auf 2 Stellen).
-    `as_time`: Werte als Excel-Zeit (Std:Min) statt als Industriezeit eintragen."""
+    `as_time`: Werte als Excel-Zeit (Std:Min) statt als Industriezeit eintragen.
+    `with_notes`: die Notizen der Einträge (ohne Zeiten, gleiche nur einmal) für die Zellnotiz mitgeben."""
     sums: dict[tuple, float] = defaultdict(float)
     meta: dict[tuple, tuple[str, str]] = {}
     order: list[tuple] = []
+    notes: dict[tuple, dict[str, str]] = defaultdict(dict)   # je Projekt und Tag: Kleinschreibung -> Text
     for r in rows:
         if r["kind"] != "work" and not (include_pause and r["kind"] == "pause"):
             continue
@@ -183,11 +186,14 @@ def aggregate(rows: list[dict], include_pause: bool = False, step_minutes: int =
             order.append(key)
             meta[key] = (number, name)
         sums[key] += r["duration"].total_seconds() / 3600
+        text = (r.get("note") or "").strip()
+        if with_notes and text:
+            notes[key].setdefault(text.casefold(), text)
     def value(hours: float) -> float:
         if step_minutes > 0:
             hours = round_minutes(hours * 60, step_minutes) / 60
         return hours if as_time else round(hours, ROUND_DIGITS)
-    out = [DayHours(k[0], *meta[k], value(sums[k]), as_time) for k in order]
+    out = [DayHours(k[0], *meta[k], value(sums[k]), as_time, "\n".join(notes[k].values())) for k in order]
     return sorted([d for d in out if d.hours > 0], key=lambda d: (d.day, d.label.casefold()))
 
 
@@ -326,6 +332,21 @@ class PlanLine:
     action: str          # „vorhanden“ | „neue Zeile (Nr.)“ | „neue Zeile (Name)“
     new_row: bool = False
     as_time: bool = False   # Stunden als Excel-Zeit (Bruchteil eines Tages) schreiben
+    note: str = ""          # Text für die Zellnotiz ("" = keine)
+    old_note: str = ""      # schon vorhandene Notiz der Zelle
+
+    @property
+    def note_action(self) -> str:
+        """"" (keine Notiz), "gleich", "neu", "ersetzt" (die Stunden werden auch ersetzt) oder "behalten" (eine andere
+        Notiz steht schon in der Zelle und die Stunden bleiben gleich: die vorhandene Notiz wird nicht überschrieben)."""
+        new, old = self.note.strip(), self.old_note.strip()
+        if not new:
+            return ""
+        if new == old:
+            return "gleich"
+        if not old:
+            return "neu"
+        return "ersetzt" if self.overwrites else "behalten"
 
     @property
     def cell_value(self) -> float:
@@ -472,8 +493,13 @@ def plan_month(sheet: SheetAccess, month: int, year: int, items: list[DayHours],
                                  "enthält eine Formel – nicht überschrieben.")
             continue
         old = cell(row, col)
-        plan.lines.append(PlanLine(sheet.name, it.day, it.label, it.hours, row, col,
-                                   None if _is_zero(old) else old, action, new, it.as_time))
+        read_note = getattr(sheet, "note", None)
+        old_note = read_note(row, col) if it.note and read_note else ""
+        line = PlanLine(sheet.name, it.day, it.label, it.hours, row, col,
+                        None if _is_zero(old) else old, action, new, it.as_time, it.note, old_note)
+        if line.note_action == "behalten":
+            plan.warnings.append(f"{sheet.name}!{line.address} hat schon eine andere Notiz – nicht überschrieben.")
+        plan.lines.append(line)
     return plan
 
 
@@ -559,6 +585,9 @@ def apply_plan(workbook: "WorkbookAccess", plan: Plan) -> int:
         if line.as_time and set_format:
             set_format(line.row, line.col, TIME_FORMAT)   # sonst zeigt Excel den Bruchteil eines Tages (0,0764)
         sheet.set_value(line.row, line.col, line.cell_value)
+        set_note = getattr(sheet, "set_note", None)
+        if set_note and line.note_action in ("neu", "ersetzt"):
+            set_note(line.row, line.col, line.note.strip())
     return len(plan.lines)
 
 
@@ -792,6 +821,26 @@ class ComSheet:
 
     def set_value(self, row: int, col: int, value) -> None:
         self._retry(lambda: setattr(self._ws.Cells(row, col), "Value2", value))
+
+    def note(self, row: int, col: int) -> str:
+        """Vorhandene Zellnotiz (leer, wenn keine)."""
+        def read():
+            comment = self._ws.Cells(row, col).Comment
+            return str(comment.Text()) if comment is not None else ""
+        return self._retry(read)
+
+    def set_note(self, row: int, col: int, text: str) -> None:
+        """Ersetzt die Zellnotiz (das Zettelchen am Rand der Zelle)."""
+        def write():
+            cell = self._ws.Cells(row, col)
+            if cell.Comment is not None:
+                cell.Comment.Delete()
+            comment = cell.AddComment(text)
+            try:
+                comment.Shape.TextFrame.AutoSize = True   # Größe an den Text anpassen
+            except Exception:  # noqa: BLE001 - die Größe ist nur Zierde
+                pass
+        self._retry(write)
 
     def set_number_format(self, row: int, col: int, fmt: str) -> None:
         self._retry(lambda: setattr(self._ws.Cells(row, col), "NumberFormat", fmt))

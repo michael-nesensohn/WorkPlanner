@@ -50,6 +50,9 @@ class SheetPreview(QTableWidget):
                                         f"ersetzt {_old(ln)} durch {_number(ln.hours, ln.as_time)}: {ln.project}")
             else:
                 over[ln.row, ln.col] = (_number(ln.hours, ln.as_time), NEW_BG, f"neu: {ln.project}")
+            if ln.note_action in ("neu", "ersetzt"):   # Hinweis auf die Zellnotiz
+                text, color, tip = over[ln.row, ln.col]
+                over[ln.row, ln.col] = (text + " 📝", color, f"{tip}\nNotiz: {ln.note.strip()}")
         for r, row in enumerate(view.grid, 1):
             for c, value in enumerate(row, 1):
                 style, mark = view.styles.get((r, c)), over.get((r, c))

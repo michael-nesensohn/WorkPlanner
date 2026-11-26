@@ -3,6 +3,15 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.31
+- **Notizen im Stundenzettel** (Einstellungen → Excel, auch im Eintragen-Fenster): Auf Wunsch bekommt jede Stundenzelle
+  eine Excel-Notiz mit dem, was du für das Projekt an dem Tag in die Notiz-Felder geschrieben hast (nur Text, gleiche
+  Notizen einmal, keine Zeiten). Eine schon vorhandene andere Notiz in Excel bleibt unverändert, solange die Stunden
+  dieselben sind. Standard: aus.
+- **Projektauswahl** (Eintrag bearbeiten, Einträge zusammensetzen): „Nummer | Name“, in der aufgeklappten Liste stehen
+  Nummern und Namen in Spalten untereinander.
+- **Heute**: Die Tabelle hat jetzt eine eigene Spalte „Projekt-Nr.“ und daneben „Projekt“ (nur der Name).
+
 ## 0.1.30
 - **Wochenarbeitszeit und Teilzeit**: In den Einstellungen gibt es jetzt die Wochenarbeitszeit bei Vollzeit (z. B.
   40:00) und je Wochentag einen Beschäftigungsgrad in %. Das Tagessoll ist ein Fünftel der Wochenzeit mal Prozentsatz

@@ -117,6 +117,10 @@ QSplitter::handle:horizontal:hover { background: #dce8fb; }
 """
 
 
+# Spalten der Tabelle unter „Heute“
+COL_PROJECT_NR, COL_PROJECT, COL_ACTIVITY, COL_DEVOPS, COL_NOTE = 4, 5, 6, 7, 8
+
+
 class ClockLabel(QLabel):
     """Die große Uhr; Doppelklick öffnet die Zeitanpassung."""
     doubleClicked = Signal()
@@ -561,10 +565,11 @@ class MainWindow(QMainWindow):
         nav.addWidget(self.progress)
         left.addLayout(nav)
 
-        self.table = QTableWidget(0, 8)
+        self.table = QTableWidget(0, 9)
         self.check_header = CheckHeader(self.table)
         self.table.setHorizontalHeader(self.check_header)
-        self.table.setHorizontalHeaderLabels(["Start", "Ende", "Dauer", "Verr.", "Projekt", "Tätigkeit", "DevOps", "Notiz"])
+        self.table.setHorizontalHeaderLabels(["Start", "Ende", "Dauer", "Verr.", "Projekt-Nr.", "Projekt", "Tätigkeit",
+                                                "DevOps", "Notiz"])
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.ExtendedSelection)  # mehrere mit Strg/Umschalt
@@ -572,8 +577,8 @@ class MainWindow(QMainWindow):
         self.table.verticalHeader().setVisible(False)
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.ResizeToContents)
-        hh.setSectionResizeMode(5, QHeaderView.Interactive)   # Tätigkeit: feste Breite, Text bricht um
-        hh.resizeSection(5, 110)
+        hh.setSectionResizeMode(COL_ACTIVITY, QHeaderView.Interactive)   # Tätigkeit: feste Breite, Text bricht um
+        hh.resizeSection(COL_ACTIVITY, 110)
         # Start, Ende, Dauer und „Verr.“ schmal halten (Uhrzeiten brauchen kaum Platz); der Rest geht an Projekt und Notiz
         fm, hfm = QFontMetrics(self.table.font()), QFontMetrics(QFont(self.table.font().family(), self.table.font().pointSize(), QFont.Bold))
         narrow = {0: max(26 + hfm.horizontalAdvance("Start") + 6, 24 + fm.horizontalAdvance("00:00") + 10),
@@ -583,7 +588,7 @@ class MainWindow(QMainWindow):
         for col, width in narrow.items():
             hh.setSectionResizeMode(col, QHeaderView.Interactive)
             hh.resizeSection(col, width)
-        hh.setSectionResizeMode(7, QHeaderView.Interactive)   # Notiz: füllt den Rest, per Maus aber veränderbar
+        hh.setSectionResizeMode(COL_NOTE, QHeaderView.Interactive)   # Notiz: füllt den Rest, per Maus aber veränderbar
         self._note_fitting = False
         hh.sectionResized.connect(self._note_resized)
         self.table.setWordWrap(True)  # lange Notizen werden umgebrochen, die Zeile wird entsprechend höher
@@ -925,19 +930,19 @@ class MainWindow(QMainWindow):
         """Notiz-Spalte: füllt den Rest der Tabelle (die Breite der Tabelle bestimmt der Trenner zu Outlook)."""
         hh = self.table.horizontalHeader()
         others = sum(hh.sectionSize(c) for c in range(self.table.columnCount())
-                     if c != 7 and not self.table.isColumnHidden(c))
+                     if c != COL_NOTE and not self.table.isColumnHidden(c))
         width = max(120, self.table.viewport().width() - others)
-        if hh.sectionSize(7) != width:
+        if hh.sectionSize(COL_NOTE) != width:
             self._note_fitting = True
             try:
-                hh.resizeSection(7, width)
+                hh.resizeSection(COL_NOTE, width)
             finally:
                 self._note_fitting = False
 
     def _note_resized(self, column: int, old: int, new: int) -> None:
         """Rand der Notiz-Spalte mit der Maus gezogen: die Tabelle wird breiter bzw. schmaler, die Spalten rechts
         (Outlook, DevOps, Schnellauswahl) rücken mit."""
-        if column == 7 and not self._note_fitting:
+        if column == COL_NOTE and not self._note_fitting:
             self._move_splitter(new - old)
 
     def _move_splitter(self, delta: int) -> None:
@@ -1001,13 +1006,13 @@ class MainWindow(QMainWindow):
 
     def _fill_gap_row(self, r: int, start: datetime, end: datetime) -> None:
         """Lücke zwischen zwei Einträgen: hellblau, nicht markierbar (Doppelklick trägt dort einen Eintrag ein)."""
-        vals = [fmt_time(start), fmt_time(end), fmt_duration(end - start), "", "Lücke – nichts erfasst", "", "", ""]
+        vals = [fmt_time(start), fmt_time(end), fmt_duration(end - start), "", "", "Lücke – nichts erfasst", "", "", ""]
         for c, v in enumerate(vals):
             it = QTableWidgetItem(v)
             it.setFlags(Qt.ItemIsEnabled)
             it.setBackground(theme.qcolor("#e3eefb"))
             it.setForeground(theme.qcolor("#2F5597"))
-            if c == 4:
+            if c == COL_PROJECT:
                 it.setToolTip("Hier ist nichts erfasst. Doppelklick: Eintrag in diese Zeit einfügen.")
             if c == 3:
                 it.setTextAlignment(Qt.AlignCenter)
@@ -1570,7 +1575,7 @@ class MainWindow(QMainWindow):
         on = self.svc.devops_enabled
         self.tabs.setTabVisible(self.tabs.indexOf(self.devops), on)
         self.features.setVisible(on)
-        self.table.setColumnHidden(6, not on)
+        self.table.setColumnHidden(COL_DEVOPS, not on)
         self.week.entries.setColumnHidden(6, not on)
         self.note_task_btn.setVisible(on)
         self.report.apply_devops()
@@ -1636,14 +1641,15 @@ class MainWindow(QMainWindow):
             lunch = self.svc.lunch_overlap(e, windows[e.start.date()], now)
             vals = [fmt_time(e.start), fmt_time(e.end), fmt_duration(e.duration(now) - lunch),
                     "✓" if e.billable and e.kind != PAUSE else "",
-                    self.svc.entry_label(e) if e.kind == PAUSE else (self.svc.project_display(e.project_id, e.start.date()) or "–"),
+                    "" if e.kind == PAUSE else self.svc.project_number(e.project_id, e.start.date()),
+                    self.svc.entry_label(e) if e.kind == PAUSE else (self.svc.project_name(e.project_id, e.start.date()) or "–"),
                     self.svc.activity_name(e.activity_id), (f"#{e.devops_id}" + (f" → Task #{e.devops_task_id}" if e.devops_task_id else "")) if e.devops_id else "",
                     note_one_line(e.note)]
             for c, v in enumerate(vals):
                 it = QTableWidgetItem(v)
-                if c == 7 and e.note:
+                if c == COL_NOTE and e.note:
                     it.setToolTip(e.note)
-                if c == 6 and e.devops_id:
+                if c == COL_DEVOPS and e.devops_id:
                     it.setToolTip(f"#{e.devops_id} {self.svc.devops_title(e.devops_id)}".strip())
                 if c == 2 and lunch:
                     it.setToolTip(f"{fmt_duration(e.duration(now))} brutto, davon {fmt_duration(lunch)} "

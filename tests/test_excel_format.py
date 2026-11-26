@@ -86,3 +86,57 @@ def test_service_settings_default_and_validation():
     assert svc.excel_time_format == "time" and svc.excel_round_minutes == 15
     svc.set_excel_format("quatsch", 7)                                    # ungültig: Standard
     assert svc.excel_time_format == "decimal" and svc.excel_round_minutes == 5
+
+
+# --- Notizen als Zellnotiz ---------------------------------------------------------------------
+
+def note_rows(*notes):
+    return [{"kind": "work", "date": DAY, "project": "Demo", "project_number": "1",
+             "duration": timedelta(minutes=30), "note": n} for n in notes]
+
+
+def test_notes_are_collected_as_plain_text_without_times_and_duplicates():
+    items = aggregate(note_rows("Schnittstelle gebaut", "", "  Tests  ", "schnittstelle gebaut"), with_notes=True)
+    assert items[0].note == "Schnittstelle gebaut\nTests"                # leer und doppelt entfallen, keine Zeiten
+    assert aggregate(note_rows("x"))[0].note == ""                       # Einstellung aus: keine Notiz
+
+
+class NoteSheet(Sheet):
+    def __init__(self, notes=None):
+        super().__init__()
+        self.notes = dict(notes or {})
+
+    def note(self, row, col):
+        return self.notes.get((row, col), "")
+
+    def set_note(self, row, col, text):
+        self.notes[row, col] = text
+
+
+def test_note_actions_follow_the_conflict_rules():
+    def line(old=None, hours=1.0, old_note="", note="Neu"):
+        return PlanLine("Nov", DAY, "Demo", hours, 8, 6, old, "vorhanden", note=note, old_note=old_note)
+    assert line().note_action == "neu"
+    assert line(note="").note_action == ""
+    assert line(old_note="Neu").note_action == "gleich"
+    assert line(old_note="Andere").note_action == "behalten"              # gleiche Stunden: Excel-Notiz bleibt
+    assert line(old=2.0, old_note="Andere").note_action == "ersetzt"      # Stunden werden ersetzt: Notiz auch
+
+
+def test_apply_plan_writes_new_and_replaced_notes_only():
+    sheet = NoteSheet({(9, 6): "Excel-Notiz"})
+    lines = [PlanLine("Nov", DAY, "A", 1.0, 8, 6, None, "vorhanden", note="Text A"),
+             PlanLine("Nov", DAY, "B", 1.0, 9, 6, None, "vorhanden", note="Text B", old_note="Excel-Notiz"),
+             PlanLine("Nov", DAY, "C", 1.0, 10, 6, None, "vorhanden")]
+    apply_plan(Book(sheet), Plan(lines=lines))
+    assert sheet.notes == {(8, 6): "Text A", (9, 6): "Excel-Notiz"}      # B behalten, C ohne Notiz
+    assert sheet.values[9, 6] == 1.0                                     # die Stunden werden trotzdem geschrieben
+
+
+def test_service_setting_for_notes_is_off_by_default():
+    from workplanner.db import Database
+    from workplanner.service import TimeService
+    svc = TimeService(Database())
+    assert svc.excel_notes is False
+    svc.set_excel_notes(True)
+    assert svc.excel_notes is True

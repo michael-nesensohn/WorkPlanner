@@ -335,6 +335,12 @@ class MasterDataPage(QWidget):
             self.excel_round.addItem("nicht runden" if minutes == 0 else f"auf {minutes} min runden", minutes)
         self.excel_round.setToolTip("Die Summe je Projekt und Tag wird vor dem Eintragen auf volle Minutenschritte gerundet "
                                     "(ab der Hälfte auf). Beispiel 5 min: 1:48 → 1:50 (1,83), 1:47 → 1:45 (1,75).")
+        self.excel_notes = QCheckBox("Notizen der Einträge als Excel-Notiz an den Stunden eintragen")
+        self.excel_notes.setToolTip("An jeder Stundenzelle erscheint eine Notiz (das gelbe Zettelchen) mit dem, was du an "
+                                    "dem Tag für das Projekt in die Notiz-Felder geschrieben hast (nur Text, gleiche "
+                                    "Notizen einmal). Eine schon vorhandene andere Notiz in Excel bleibt unverändert, "
+                                    "solange die Stunden dieselben sind.")
+        xl.addRow("", self.excel_notes)
         xl.addRow("Zeitformat im Stundenzettel", self.excel_format)
         xl.addRow("Runden", self.excel_round)
         xl.addRow("", self.excel_backup)
@@ -389,6 +395,7 @@ class MasterDataPage(QWidget):
         self.excel_backup.clicked.connect(lambda _: self._save_excel())
         self.excel_backup_path.editingFinished.connect(self._save_excel)
         self.excel_pause.clicked.connect(lambda _: self._save_excel())
+        self.excel_notes.clicked.connect(lambda _: self._save_excel())
         self.excel_format.currentIndexChanged.connect(lambda _: self._save_excel())
         self.excel_round.currentIndexChanged.connect(lambda _: self._save_excel())
         self.lunch_mode.currentIndexChanged.connect(self._save_settings)
@@ -451,6 +458,7 @@ class MasterDataPage(QWidget):
         self.excel_path.setText(self.svc.excel_path)
         self.excel_save.setChecked(self.svc.excel_save)
         self.excel_pause.setChecked(self.svc.excel_include_pause)
+        self.excel_notes.setChecked(self.svc.excel_notes)
         for box, value in ((self.excel_format, self.svc.excel_time_format), (self.excel_round, self.svc.excel_round_minutes)):
             box.blockSignals(True)
             box.setCurrentIndex(max(0, box.findData(value)))
@@ -527,6 +535,7 @@ class MasterDataPage(QWidget):
     def _save_excel(self) -> None:
         self.svc.set_excel(self.excel_path.text(), self.excel_save.isChecked())
         self.svc.set_excel_include_pause(self.excel_pause.isChecked())
+        self.svc.set_excel_notes(self.excel_notes.isChecked())
         self.svc.set_excel_format(self.excel_format.currentData(), self.excel_round.currentData())
         self.svc.set_excel_backup(self.excel_backup.isChecked(), self.excel_backup_path.text())
         self.excel_backup_path.setEnabled(self.excel_backup.isChecked())

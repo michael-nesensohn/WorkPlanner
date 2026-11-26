@@ -213,6 +213,14 @@ class TimeService:
     def set_excel_include_pause(self, on: bool) -> None:
         self.db.set_setting("excel_include_pause", "1" if on else "0")
 
+    @property
+    def excel_notes(self) -> bool:
+        """Notizen der Einträge als Zellnotiz an den Stunden im Stundenzettel eintragen (Standard: nein)."""
+        return self.db.get_setting("excel_notes") == "1"
+
+    def set_excel_notes(self, on: bool) -> None:
+        self.db.set_setting("excel_notes", "1" if on else "0")
+
     EXCEL_ROUND_STEPS = (0, 1, 5, 10, 15)
 
     @property

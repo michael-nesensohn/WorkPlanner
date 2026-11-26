@@ -56,12 +56,18 @@ class ExcelExportDialog(QDialog):
         self.skip_done.setChecked(True)
         self.skip_done.setToolTip("WorkPlanner merkt sich, was es in diese Datei eingetragen hat. Unveränderte Werte "
                                   "werden nicht noch einmal eingetragen; geänderte schon.")
+        self.notes_cb = QCheckBox("Notizen als Excel-Notiz eintragen")
+        self.notes_cb.setChecked(service.excel_notes)
+        self.notes_cb.setToolTip("Wie in den Einstellungen: an der Stundenzelle erscheint als Notiz, was du eingetragen hast. "
+                                 "Danach „Vorschau“ drücken. Schon eingetragene Tage mit gleichen Stunden bekommen "
+                                 "die Notiz nur, wenn „Schon eingetragene Tage überspringen“ aus ist.")
+        self.notes_cb.clicked.connect(self._notes_toggled)
         reset = QPushButton("Merker zurücksetzen")
         reset.setToolTip("Vergisst, was im gewählten Zeitraum schon eingetragen wurde (z. B. wenn du Werte in Excel "
                          "gelöscht hast)")
         reset.clicked.connect(self._reset_marks)
         options = QHBoxLayout()
-        for w in (QLabel("Steht schon ein Wert in Excel:"), self.conflict, self.skip_done, reset):
+        for w in (QLabel("Steht schon ein Wert in Excel:"), self.conflict, self.skip_done, self.notes_cb, reset):
             options.addWidget(w)
         options.addStretch(1)
         self.info = QLabel(f"Datei: <b>{service.excel_path or '(nicht eingestellt)'}</b> · Vorlage: <b>{service.excel_profile.name}</b><br>"
@@ -127,7 +133,7 @@ class ExcelExportDialog(QDialog):
             self.status.setText("<span style='color:#c0392b'>⚠ „bis“ liegt vor „Von“.</span>")
             return
         items = aggregate(self.svc.report_rows(first, last), self.svc.excel_include_pause, self.svc.excel_round_minutes,
-                          self.svc.excel_time_format == "time")  # Datenbank nur im GUI-Thread lesen
+                          self.svc.excel_time_format == "time", self.notes_cb.isChecked())  # Datenbank nur im GUI-Thread lesen
         done = self.svc.excel_exported(first, last) if self.skip_done.isChecked() else {}
         self._items = [it for it in items if abs(done.get((it.day.isoformat(), self._mark_key(it)), -1) - it.hours) > 1e-6]
         self._skipped = len(items) - len(self._items)
@@ -171,7 +177,8 @@ class ExcelExportDialog(QDialog):
             old = ("" if ln.old is None else hours_text(ln.old * 24, True) if ln.as_time and isinstance(ln.old, (int, float))
                    else f"{ln.old:g}" if isinstance(ln.old, (int, float)) else str(ln.old))
             vals = [f"{ln.day:%d.%m.%Y}", ln.project, hours_text(ln.hours, ln.as_time), f"{ln.sheet.strip()}  {ln.address}",
-                    ln.action, old + ("  → ersetzt" if ln.overwrites else "")]
+                    ln.action + (" + Notiz" if ln.note_action in ("neu", "ersetzt") else ""),
+                    old + ("  → ersetzt" if ln.overwrites else "")]
             replaced += ln.overwrites
             if ln.overwrites and self.conflict.currentData() == "excel":
                 vals[5] = old + "  → bleibt (Excel hat Vorrang)"
@@ -229,6 +236,9 @@ class ExcelExportDialog(QDialog):
     @staticmethod
     def _mark_key(it: DayHours) -> str:
         return "|".join(it.key)
+
+    def _notes_toggled(self, on: bool) -> None:
+        self.svc.set_excel_notes(on)
 
     def _conflict_changed(self, *_) -> None:
         mode = self.conflict.currentData()

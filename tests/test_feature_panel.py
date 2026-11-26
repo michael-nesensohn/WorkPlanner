@@ -78,7 +78,7 @@ def test_click_books_on_the_feature_as_a_normal_project(qapp):
     assert svc.project_name(pid) == "Waagen-Anbindung" and run.project_id == pid
     assert run.devops_id == 21 and run.note == ""                         # Notiz bleibt frei
     assert w.task_label.text() == "21  Waagen-Anbindung"                  # dort, wo sonst „Allgemein“ steht
-    assert w.table.item(0, 4).text() == "21  Waagen-Anbindung"
+    assert (w.table.item(0, 4).text(), w.table.item(0, 5).text()) == ("21", "Waagen-Anbindung")
     assert w.devops_box.isHidden()                                        # Feature = Projekt: keine Doppelanzeige
     assert w.features._buttons[21].isChecked() and not w.features._buttons[22].isChecked()
     assert next(p for p in svc.projects() if p["id"] == pid)["favorite"] == 0
@@ -236,7 +236,8 @@ def test_click_on_story_books_on_its_feature_project_and_links_the_story(qapp):
     assert run.devops_id == 211 and run.note == ""                                 # die Story hängt darunter
     assert w.task_label.text() == "21  Waagen-Anbindung"                           # dort, wo sonst „Allgemein“ steht
     assert not w.devops_box.isHidden() and w.devops_label.text() == "#211 Waage lesen"   # Story als Verknüpfung
-    assert w.table.item(0, 4).text() == "21  Waagen-Anbindung" and w.table.item(0, 6).text() == "#211"
+    assert (w.table.item(0, 4).text(), w.table.item(0, 5).text()) == ("21", "Waagen-Anbindung")
+    assert w.table.item(0, 7).text() == "#211"
     assert w.features._buttons[211].isChecked() and not w.features._buttons[21].isChecked()
     assert svc.find_project(number="211") is None                                  # keine Story-Projekte
     w.note.setPlainText("Schnittstelle gebaut")

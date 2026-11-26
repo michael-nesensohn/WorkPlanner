@@ -118,7 +118,7 @@ def test_multiline_note(qapp):
     w._note_edited()
     assert svc.current().note == "Zeile 1\nZeile 2\nZeile 3"
     w.refresh()
-    assert w.table.item(0, 7).text() == "Zeile 1 ⏎ Zeile 2 ⏎ Zeile 3"
+    assert w.table.item(0, 8).text() == "Zeile 1 ⏎ Zeile 2 ⏎ Zeile 3"
     dlg = EntryDialog(svc, w.day, svc.current())
     assert dlg.note.toPlainText().count("\n") == 2 and dlg._changes() == {}
 
@@ -205,7 +205,8 @@ def test_devops_tab_story_books_on_the_feature_project_and_a_feature_is_the_proj
     assert run.project_id == pid and svc.project_name(pid) == "Waagen-Anbindung"
     assert run.devops_id == 4411 and run.note == ""                      # Notiz bleibt frei
     assert w.task_label.text() == "21  Waagen-Anbindung"                 # das Feature steht als Projekt da
-    assert w.table.item(0, 4).text() == "21  Waagen-Anbindung" and w.table.item(0, 6).text() == "#4411"
+    assert (w.table.item(0, 4).text(), w.table.item(0, 5).text()) == ("21", "Waagen-Anbindung")
+    assert w.table.item(0, 7).text() == "#4411"
     assert not w.devops_box.isHidden() and "#4411 Schnittstelle Waage" in w.devops_label.text()
     assert w.tabs.currentIndex() == 0
     w.devops.story_chosen.emit({"id": 22, "title": "Export nach Excel", "type": "feature",
@@ -875,19 +876,19 @@ def test_devops_can_be_switched_off_in_the_settings(qapp):
     w = MainWindow(svc)
     w.show()
     tab = w.tabs.indexOf(w.devops)
-    assert w.tabs.isTabVisible(tab) and w.features.isVisibleTo(w) and not w.table.isColumnHidden(6)
+    assert w.tabs.isTabVisible(tab) and w.features.isVisibleTo(w) and not w.table.isColumnHidden(7)
     assert "devops" in svc.export_columns and w.report.column_boxes["devops"].isVisibleTo(w.report)
     w.master.devops_cb.click()                              # Einstellungen: DevOps aus
     assert not svc.devops_enabled
     assert not w.tabs.isTabVisible(tab) and not w.features.isVisibleTo(w)
-    assert w.table.isColumnHidden(6) and w.week.entries.isColumnHidden(6) and not w.note_task_btn.isVisibleTo(w)
+    assert w.table.isColumnHidden(7) and w.week.entries.isColumnHidden(6) and not w.note_task_btn.isVisibleTo(w)
     assert "devops" not in svc.export_columns and "devops" not in w.report._columns()
     assert not w.report.column_boxes["devops"].isVisibleTo(w.report)
     d = EntryDialog(svc, w.day, None, None, w)               # keine DevOps-ID-Zeile mehr im Dialog
     assert not d.devops_id.isVisibleTo(d)
     w.master.devops_cb.click()                              # wieder an
     assert svc.devops_enabled and w.tabs.isTabVisible(tab) and w.features.isVisibleTo(w)
-    assert not w.table.isColumnHidden(6) and "devops" in svc.export_columns
+    assert not w.table.isColumnHidden(7) and "devops" in svc.export_columns
 
 
 def test_license_matches_the_file_and_help_menu_shows_it(qapp):
@@ -1226,7 +1227,7 @@ def test_gap_after_delete_is_shown_as_blue_row_and_can_be_filled(qapp, monkeypat
     w._delete()
     assert w.table.rowCount() == 3 and w._row_entries[1] is None
     assert w.table.item(1, 0).text() == "09:00" and w.table.item(1, 1).text() == "10:00"
-    assert w.table.item(1, 4).text().startswith("Lücke")
+    assert w.table.item(1, 5).text().startswith("Lücke")
     assert not (w.table.item(1, 0).flags() & Qt.ItemIsSelectable)
     assert [e.start.hour for e in svc.day_entries(w.day)] == [8, 10]        # der Rest ist nicht nachgerutscht
     seen = {}
@@ -1400,12 +1401,12 @@ def test_dragging_the_note_column_edge_moves_the_splitter_and_right_columns(qapp
     qapp.processEvents()
     left, right = w.body.sizes()[0], sum(w.body.sizes()[1:])
     hh = w.table.horizontalHeader()
-    note = hh.sectionSize(7)
-    hh.resizeSection(7, note + 60)                      # wie mit der Maus am rechten Rand der Notiz gezogen
+    note = hh.sectionSize(8)
+    hh.resizeSection(8, note + 60)                      # wie mit der Maus am rechten Rand der Notiz gezogen
     qapp.processEvents()
     assert abs(w.body.sizes()[0] - (left + 60)) <= 2 and abs(sum(w.body.sizes()[1:]) - (right - 60)) <= 2   # rechte Spalten rücken mit
-    assert abs(hh.sectionSize(7) - (note + 60)) <= 2                                # Notiz füllt weiter den Rest
-    hh.resizeSection(7, note - 100)                     # schmaler: die rechten Spalten bekommen den Platz
+    assert abs(hh.sectionSize(8) - (note + 60)) <= 2                                # Notiz füllt weiter den Rest
+    hh.resizeSection(8, note - 100)                     # schmaler: die rechten Spalten bekommen den Platz
     qapp.processEvents()
     assert w.body.sizes()[0] <= left + 60 - 100 + 160   # (die Kopfzeile der linken Seite begrenzt, wie weit es schmaler geht)
     w._move_splitter(10 ** 5)                           # sehr breit: nichts verschwindet, jede Spalte behält ihr Minimum
@@ -1449,3 +1450,34 @@ def test_dragging_a_right_column_edge_resizes_that_column_and_the_table_gives_wa
     w.body.drag_handle(handle, 10 ** 5, before)          # sehr weit nach rechts: DevOps nur bis zum Minimum, nie weg
     assert w.body.sizes()[2] >= w.body.minimum_for(2)
     w.close()
+
+
+def test_today_table_has_separate_project_number_and_name_columns(qapp):
+    from workplanner.timeline import Entry
+    db = Database()
+    seed(db)
+    svc = TimeService(db, Clock(9, 0))
+    with_nr = db.add_project("Demo-Plattform", number="D-100")
+    without_nr = db.add_project("Allgemeines")
+    day = svc.now().date()
+    db.save_day(day, [Entry(datetime(day.year, day.month, day.day, 8), datetime(day.year, day.month, day.day, 8, 30),
+                            project_id=with_nr),
+                      Entry(datetime(day.year, day.month, day.day, 8, 30), datetime(day.year, day.month, day.day, 9),
+                            project_id=without_nr)])
+    w = MainWindow(svc)
+    labels = [w.table.horizontalHeaderItem(c).text() for c in range(w.table.columnCount())]
+    assert labels[4:6] == ["Projekt-Nr.", "Projekt"] and labels[-1] == "Notiz"
+    assert (w.table.item(0, 4).text(), w.table.item(0, 5).text()) == ("D-100", "Demo-Plattform")
+    assert (w.table.item(1, 4).text(), w.table.item(1, 5).text()) == ("", "Allgemeines")
+
+
+def test_project_combo_shows_number_pipe_name_and_keeps_the_id(qapp):
+    from PySide6.QtWidgets import QComboBox
+    from workplanner.ui.project_combo import ROLE_NAME, ROLE_NUMBER, fill_project_combo
+    combo = QComboBox()
+    fill_project_combo(combo, [(1, "P-1", "Alpha"), (2, "", "Meeting"), (3, "P-22-001", "Beta")])
+    assert [combo.itemText(i) for i in range(3)] == ["P-1 | Alpha", "Meeting", "P-22-001 | Beta"]
+    assert [combo.itemData(i) for i in range(3)] == [1, 2, 3]
+    assert [combo.itemData(i, ROLE_NUMBER) for i in range(3)] == ["P-1", "", "P-22-001"]
+    assert [combo.itemData(i, ROLE_NAME) for i in range(3)] == ["Alpha", "Meeting", "Beta"]
+    assert combo.itemDelegate().number_width > 0

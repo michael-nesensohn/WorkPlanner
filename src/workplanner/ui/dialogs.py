@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QCalendarWidget, QCheckBox, QComboBox, QDialog, Q
                                QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
                                QRadioButton, QSpinBox, QTimeEdit, QVBoxLayout)
 
+from .project_combo import fill_project_combo
 from ..service import TimeService
 from .feature_panel import group_items
 from .icons import line_icon
@@ -180,11 +181,11 @@ class MergeDialog(QDialog):
         self._devops = defaults["devops_id"]
         self.project = QComboBox()
         service.default_project_id()
-        for p in sorted(service.projects(), key=lambda p: p["name"].casefold()):
-            self.project.addItem(p["name"], p["id"])
         pid = defaults["project_id"]
-        if pid is not None and self.project.findData(pid) < 0:
-            self.project.insertItem(0, service.project_name(pid), pid)   # z. B. archiviert
+        rows = [(p["id"], p["number"], p["name"]) for p in sorted(service.projects(), key=lambda p: p["name"].casefold())]
+        if pid is not None and all(r[0] != pid for r in rows):
+            rows.insert(0, (pid, service.project_number(pid), service.project_name(pid)))   # z. B. archiviert
+        fill_project_combo(self.project, rows)
         self.project.setCurrentIndex(max(0, self.project.findData(pid)))
         self.activity = QComboBox()
         self.note = NoteEdit(defaults["note"], "Notiz")
@@ -578,11 +579,10 @@ class EntryDialog(QDialog):
     def _fill_projects(self, current: int | None) -> None:
         """Alle Projekte alphabetisch mit Nummer („Nummer  Name“); das aktuelle auch, wenn es ausgeblendet ist."""
         self.project.blockSignals(True)
-        self.project.clear()
-        for p in sorted(self.svc.projects(), key=lambda p: p["name"].casefold()):
-            self.project.addItem(self.svc.project_display(p["id"]), p["id"])
-        if current is not None and self.project.findData(current) < 0:
-            self.project.insertItem(0, self.svc.project_display(current), current)   # z. B. archiviert
+        rows = [(p["id"], p["number"], p["name"]) for p in sorted(self.svc.projects(), key=lambda p: p["name"].casefold())]
+        if current is not None and all(r[0] != current for r in rows):
+            rows.insert(0, (current, self.svc.project_number(current), self.svc.project_name(current)))   # z. B. archiviert
+        fill_project_combo(self.project, rows)
         self.project.blockSignals(False)
 
     def _edit_project(self) -> None:

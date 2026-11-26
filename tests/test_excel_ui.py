@@ -694,7 +694,7 @@ def test_entry_dialog_edits_project_name_and_number(qapp, monkeypatch):
     pid = db.add_project("Alt", number="1", favorite=False)   # nicht in der Schnellauswahl
     svc = TimeService(db, Clock())
     dlg = EntryDialog(svc, date(2026, 11, 2))
-    assert dlg.project.findData(pid) >= 0 and "1  Alt" in dlg.project.itemText(dlg.project.findData(pid))
+    assert dlg.project.findData(pid) >= 0 and "1 | Alt" in dlg.project.itemText(dlg.project.findData(pid))
     dlg.project.setCurrentIndex(dlg.project.findData(pid))
 
     class Fake:
@@ -709,5 +709,5 @@ def test_entry_dialog_edits_project_name_and_number(qapp, monkeypatch):
     monkeypatch.setattr(dialogs, "ask_project_since", lambda parent, service: date(2026, 11, 2))
     dlg._edit_project()
     assert svc.project_display(pid) == "2  Neu"
-    assert dlg.project.currentData() == pid and dlg.project.currentText() == "2  Neu"
+    assert dlg.project.currentData() == pid and dlg.project.currentText() == "2 | Neu"
     dlg.close()

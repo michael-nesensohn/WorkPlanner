@@ -88,7 +88,7 @@ def test_card_shows_link_when_project_differs_and_unlink_button(qapp):
     assert not w.devops_box.isHidden() and "#4411" in w.devops_label.text()
     w.unlink_btn.click()
     assert svc.current().devops_id is None and w.devops_box.isHidden()
-    assert w.table.item(0, 6).text() == ""
+    assert w.table.item(0, 7).text() == ""
 
 
 def test_entry_dialog_edits_the_link(qapp):
@@ -161,7 +161,7 @@ def test_mark_entry_task_is_saved_and_shown_in_the_table(qapp):
     svc.mark_entry_task(e.id, 5001)
     assert svc.day_entries(DAY)[0].devops_task_id == 5001
     w = MainWindow(svc)
-    assert w.table.item(0, 6).text() == "#211 → Task #5001"
+    assert w.table.item(0, 7).text() == "#211 → Task #5001"
 
 
 def test_devops_client_reports_missing_setup(qapp):
