@@ -3,6 +3,12 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.33
+- **Industriezeit zuschaltbar** (Standard: aus, Stunden:Minuten): In **Woche** gibt es neben dem Datum den Haken
+  „Industriezeit“; er gilt für „Übersicht“ und „Einträge“ (1,25 = 1 h 15 min). In **Berichte** steht der Haken direkt
+  neben „Dauer“ und wirkt auf die Vorschau, den Excel-Export (Dezimalstunden, Zellformat 0,00) und das PDF. Beide
+  Auswahlen werden gemerkt.
+
 ## 0.1.32
 - **Excel: „Vorher löschen und neu eintragen“** (Fenster „In Excel-Stundenzettel eintragen“): Auf Wunsch werden zuerst
   die Stundenzellen samt Notizen geleert und dann alles neu eingetragen; die Merker des Zeitraums werden dabei

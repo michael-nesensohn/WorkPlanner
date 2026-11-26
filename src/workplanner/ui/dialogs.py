@@ -422,6 +422,11 @@ def fmt_duration(td: timedelta) -> str:
     return f"{minutes // 60}:{minutes % 60:02d}"
 
 
+def fmt_industrial(td: timedelta) -> str:
+    """Industriezeit: Stunden dezimal („1,25“ = 1 h 15 min)."""
+    return f"{td.total_seconds() / 3600:.2f}".replace(".", ",")
+
+
 def _qtime(dt: datetime) -> QTime:
     return QTime(dt.hour, dt.minute)
 

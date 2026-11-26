@@ -53,9 +53,16 @@ DEFAULT_COLUMNS = ["date", "duration", "billable", "project_number", "project", 
 
 
 def export_excel(path: str | Path, rows: list[dict], daily_target: timedelta,
-                 columns: list[str] | None = None, show_pauses: bool = True) -> None:
+                 columns: list[str] | None = None, show_pauses: bool = True, industrial: bool = False) -> None:
     """`rows` kommen aus `TimeService.report_rows`; `columns` sind Schlüssel aus `COLUMNS` (Standard: `DEFAULT_COLUMNS`).
-    Ohne `show_pauses` fehlen die Pausen-Einträge im Blatt „Einträge“ (die Tagesübersicht zählt sie weiterhin)."""
+    Ohne `show_pauses` fehlen die Pausen-Einträge im Blatt „Einträge“ (die Tagesübersicht zählt sie weiterhin).
+    Mit `industrial` stehen alle Dauern als Dezimalstunden (1,25 = 1 h 15 min, Format 0,00) statt als Std:Min."""
+    dur_fmt = "0.00" if industrial else DURATION_FMT
+
+    def dur(value):
+        """Dauer für die Zelle: Std:Min (Excel-Zeit) oder Dezimalstunden."""
+        return value.total_seconds() / 3600 if industrial and isinstance(value, timedelta) else value
+
     cols = [c for c in (columns or DEFAULT_COLUMNS) if c in COLUMNS] or DEFAULT_COLUMNS
     wb = Workbook()
 
@@ -63,10 +70,11 @@ def export_excel(path: str | Path, rows: list[dict], daily_target: timedelta,
     ws.title = "Einträge"
     _header(ws, [COLUMNS[c][0] for c in cols])
     for r in (rows if show_pauses else [r for r in rows if r["kind"] != "pause"]):
-        ws.append([COLUMNS[c][2](r) for c in cols])
+        ws.append([dur(COLUMNS[c][2](r)) for c in cols])
         i = ws.max_row
         for n, c in enumerate(cols, 1):
             _, _, _, fmt, align = COLUMNS[c]
+            fmt = dur_fmt if fmt == DURATION_FMT else fmt
             if fmt:
                 ws.cell(i, n).number_format = fmt
             ws.cell(i, n).alignment = (Alignment(horizontal="center", vertical="top") if align == "center" else
@@ -85,12 +93,12 @@ def export_excel(path: str | Path, rows: list[dict], daily_target: timedelta,
                  + _sum(r["lunch"] for r in rows if r["date"] == d))   # Mittagspause: in der Arbeitszeit abgezogen
         # `daily_target`: Soll je Tag (Funktion Tag → Dauer) oder ein fester Wert für Mo–Fr
         target = daily_target(d) if callable(daily_target) else daily_target if d.weekday() < 5 else timedelta()
-        ws.append([d, WEEKDAYS[d.weekday()], work, billable, pause, target, None])
+        ws.append([d, WEEKDAYS[d.weekday()], dur(work), dur(billable), dur(pause), dur(target), None])
         i = ws.max_row
         ws.cell(i, 7).value = f"=C{i}-F{i}"
         ws.cell(i, 1).number_format = "DD.MM.YYYY"
         for c in range(3, 8):
-            ws.cell(i, c).number_format = DURATION_FMT
+            ws.cell(i, c).number_format = dur_fmt
     if days:
         n = ws.max_row
         ws.append(["Summe", None] + [f"=SUM({get_column_letter(c)}2:{get_column_letter(c)}{n})"
@@ -98,7 +106,7 @@ def export_excel(path: str | Path, rows: list[dict], daily_target: timedelta,
         for c in ws[ws.max_row]:
             c.font = Font(bold=True)
         for c in range(3, 8):
-            ws.cell(ws.max_row, c).number_format = DURATION_FMT
+            ws.cell(ws.max_row, c).number_format = dur_fmt
     _widths(ws, [12, 14, 13, 19, 10, 10, 12])
 
     ws = wb.create_sheet("Projektsummen")
@@ -116,15 +124,15 @@ def export_excel(path: str | Path, rows: list[dict], daily_target: timedelta,
     for project in sorted(totals):
         acts = totals[project]
         ws.append([numbers.get(project, ""), project, None,
-                   _sum(a[0] for a in acts.values()), _sum(a[1] for a in acts.values()), None])
+                   dur(_sum(a[0] for a in acts.values())), dur(_sum(a[1] for a in acts.values())), None])
         head_row = ws.max_row
         for c in ws[head_row]:
             c.font = Font(bold=True)
         for activity in sorted(acts):
-            ws.append([None, None, activity, acts[activity][0], acts[activity][1], None])
+            ws.append([None, None, activity, dur(acts[activity][0]), dur(acts[activity][1]), None])
         for i in range(head_row, ws.max_row + 1):
-            ws.cell(i, 4).number_format = ws.cell(i, 5).number_format = DURATION_FMT
-            ws.cell(i, 6).value = f"=D{i}*24"
+            ws.cell(i, 4).number_format = ws.cell(i, 5).number_format = dur_fmt
+            ws.cell(i, 6).value = f"=D{i}" if industrial else f"=D{i}*24"
             ws.cell(i, 6).number_format = "0.00"
     _widths(ws, [12, 28, 28, 12, 19, 18])
 

@@ -16,11 +16,14 @@ WEEKDAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"
 SUMMARY, DETAIL = "summary", "detail"
 DEFAULT_LAYOUT = {"heading": 12, "text": 8, "landscape": True}   # Schriftgrößen in pt
 _size = {"heading": 12, "text": 8}   # gilt für den gerade erzeugten Bericht (build_html setzt es)
+_industrial = [False]                # dito: Dauer als Industriezeit (1,25) statt Std:Min
 RESOLUTION = 600   # dpi des PDFs: bei niedriger Auflösung rastert Qt die Buchstabenabstände grob (fette Schrift wirkt verschmiert)
 DEFAULT_COLUMNS = ["date", "duration", "billable", "project_number", "project", "activity", "note", "devops"]
 
 
 def fmt_hm(d: timedelta) -> str:
+    if _industrial[0]:
+        return f"{d.total_seconds() / 3600:.2f}".replace(".", ",")
     minutes = round(d.total_seconds() / 60)
     return f"{minutes // 60}:{minutes % 60:02d}"
 
@@ -159,7 +162,7 @@ def _detail_table(day_rows: list[dict], cols: set[str], show_pauses: bool) -> st
 
 def build_html(rows: list[dict], daily_target: timedelta, first: date, last: date, project_name: str = "",
                mode: str = SUMMARY, columns: list[str] | None = None, show_pauses: bool = False,
-               header: dict[str, str] | None = None, layout: dict | None = None) -> str:
+               header: dict[str, str] | None = None, layout: dict | None = None, industrial: bool = False) -> str:
     """HTML des Berichts. `header`: Kopfdaten aus den Einstellungen (title, name, company, extra). `rows` wie von `TimeService.report_rows` (inklusive Pausen); `columns` sind die angehakten
     Schlüssel aus `export.COLUMNS`."""
     cols = set(DEFAULT_COLUMNS if columns is None else columns)
@@ -169,6 +172,7 @@ def build_html(rows: list[dict], daily_target: timedelta, first: date, last: dat
     _, pause_total = _day_totals(rows)
     lay = {**DEFAULT_LAYOUT, **(layout or {})}
     _size.update(heading=lay["heading"], text=lay["text"])
+    _industrial[0] = industrial
     h, n = lay["heading"], lay["text"]
     head = {k: (v or "").strip() for k, v in (header or {}).items()}
     lines = [f"{label}: <b>{escape(head[key])}</b>" for key, label in
@@ -224,7 +228,7 @@ def build_html(rows: list[dict], daily_target: timedelta, first: date, last: dat
 def export_pdf(path: str | Path, rows: list[dict], daily_target: timedelta, first: date, last: date,
                project_name: str = "", mode: str = SUMMARY, columns: list[str] | None = None,
                show_pauses: bool = False, header: dict[str, str] | None = None,
-               layout: dict | None = None) -> None:
+               layout: dict | None = None, industrial: bool = False) -> None:
     """Schreibt den Bericht als A4-PDF (Standard: quer, schmale Ränder). `layout`: heading/text (pt), landscape. Braucht eine QGuiApplication (die Oberfläche läuft ohnehin)."""
     from PySide6.QtCore import QMarginsF, QSizeF
     from PySide6.QtGui import QPageLayout, QPageSize, QPdfWriter, QTextDocument
@@ -239,5 +243,5 @@ def export_pdf(path: str | Path, rows: list[dict], daily_target: timedelta, firs
     doc.documentLayout().setPaintDevice(writer)   # Schriftmaße in der Auflösung des PDFs, nicht des Bildschirms
     doc.setDocumentMargin(0)   # die Seitenränder stellt der Writer ein
     doc.setPageSize(QSizeF(writer.width(), writer.height()))   # sonst addiert Qt einen eigenen, großen Rand
-    doc.setHtml(build_html(rows, daily_target, first, last, project_name, mode, columns, show_pauses, header, lay))
+    doc.setHtml(build_html(rows, daily_target, first, last, project_name, mode, columns, show_pauses, header, lay, industrial))
     doc.print_(writer)

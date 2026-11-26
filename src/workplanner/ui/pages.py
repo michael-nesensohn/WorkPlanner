@@ -16,7 +16,7 @@ from .. import autostart
 from ..export import ALL_COLUMNS, COLUMNS, export_excel
 from ..export_pdf import DETAIL, SUMMARY, export_pdf
 from ..service import TimeService
-from .dialogs import fmt_duration
+from .dialogs import fmt_duration, fmt_industrial
 from .theme import MODES as theme_modes_tuple
 
 
@@ -759,6 +759,12 @@ class WeekPage(QWidget):
         nav.addWidget(prev)
         nav.addWidget(self.title)       # Pfeile direkt neben dem Datum, nicht am Fensterrand
         nav.addWidget(nxt)
+        self.industrial = QCheckBox("Industriezeit")
+        self.industrial.setToolTip("Zeigt alle Zeiten dieser Woche (Übersicht und Einträge) dezimal: 1,25 = 1 h 15 min. "
+                                   "Aus (Standard): Stunden:Minuten.")
+        self.industrial.setChecked(self.svc.week_industrial)
+        self.industrial.toggled.connect(self._industrial_toggled)
+        nav.addWidget(self.industrial)
         nav.addStretch(1)
         self.show_pauses = QCheckBox("Pausen anzeigen")
         self.show_pauses.setToolTip("Zeigt unter „Einträge“ die Pausen und ihre Summe. Die Spalte „Pausen“ in der "
@@ -810,7 +816,12 @@ class WeekPage(QWidget):
         self.monday += timedelta(days=days)
         self.refresh()
 
+    def _industrial_toggled(self, on: bool) -> None:
+        self.svc.set_week_industrial(on)
+        self.refresh()
+
     def refresh(self) -> None:
+        self._f = fmt_industrial if self.industrial.isChecked() else fmt_duration   # Anzeigeformat dieser Woche
         last = self.monday + timedelta(days=6)
         self.title.setText(f"{self.monday:%d.%m.} – {last:%d.%m.%Y}")
         all_rows = self.svc.report_rows(self.monday, last)
@@ -841,17 +852,17 @@ class WeekPage(QWidget):
             if worked > timedelta() and worked >= target:
                 pause = max(pause, self.svc.min_pause(worked))
             with_pause_total += worked + pause
-            self._row(self.days, i, [f"{MONDAY_NAMES[i]} {d:%d.%m.}", fmt_duration(worked),
-                                     fmt_duration(worked + pause), fmt_duration(billable_day[d]),
-                                     fmt_duration(target), self._diff(worked - target), fmt_duration(pause_day[d])])
+            self._row(self.days, i, [f"{MONDAY_NAMES[i]} {d:%d.%m.}", self._f(worked),
+                                     self._f(worked + pause), self._f(billable_day[d]),
+                                     self._f(target), self._diff(worked - target), self._f(pause_day[d])])
         week_target = self.svc.week_target(self.monday)
-        self._row(self.days, 7, ["Summe", fmt_duration(total), fmt_duration(with_pause_total),
-                                 fmt_duration(sum(billable_day.values(), timedelta())),
-                                 fmt_duration(week_target), self._diff(total - week_target),
-                                 fmt_duration(sum(pause_day.values(), timedelta()))], bold=True)
+        self._row(self.days, 7, ["Summe", self._f(total), self._f(with_pause_total),
+                                 self._f(sum(billable_day.values(), timedelta())),
+                                 self._f(week_target), self._diff(total - week_target),
+                                 self._f(sum(pause_day.values(), timedelta()))], bold=True)
         self.projects.setRowCount(len(per_project))
         for i, (name, dur) in enumerate(sorted(per_project.items())):
-            self._row(self.projects, i, [name, fmt_duration(dur)])
+            self._row(self.projects, i, [name, self._f(dur)])
         self._fill_entries(rows, per_day, billable_day, total, pause_day, show)
 
     def _fill_entries(self, rows: list[dict], per_day, billable_day, total: timedelta, pause_day, show: bool) -> None:
@@ -874,10 +885,10 @@ class WeekPage(QWidget):
             r = add_row()
             text = f"{DAY_NAMES[i]} {d:%d.%m.%Y}"
             target = self.svc.target_for(d)
-            text += (f"   ·   Gearbeitet {fmt_duration(per_day[d])} h   ·   davon verrechenbar "
-                     f"{fmt_duration(billable_day[d])} h   ·   Soll {fmt_duration(target)} h   ·   "
+            text += (f"   ·   Gearbeitet {self._f(per_day[d])} h   ·   davon verrechenbar "
+                     f"{self._f(billable_day[d])} h   ·   Soll {self._f(target)} h   ·   "
                      f"Differenz {self._diff(per_day[d] - target)}"
-                     f" h{f'   ·   Pausen {fmt_duration(pause_day[d])} h' if show else ''}"
+                     f" h{f'   ·   Pausen {self._f(pause_day[d])} h' if show else ''}"
                      if entries else "   ·   nichts gebucht")
             head = QTableWidgetItem(text)
             font = head.font()
@@ -896,7 +907,7 @@ class WeekPage(QWidget):
                                                  else e["project"])
                 devops = f"#{e['devops_id']}" if e["devops_id"] else ""
                 vals = [f"{e['start']:%H:%M}", "läuft" if e["running"] else f"{e['end']:%H:%M}",
-                        fmt_duration(e["duration"]), "✓" if e["billable"] else "", project, e["activity"], devops,
+                        self._f(e["duration"]), "✓" if e["billable"] else "", project, e["activity"], devops,
                         e["note"]]
                 for c, v in enumerate(vals):
                     it = QTableWidgetItem(v)
@@ -905,8 +916,8 @@ class WeekPage(QWidget):
                     if c == 3:
                         it.setTextAlignment(Qt.AlignCenter)
                     if c == 2 and e["lunch"]:
-                        it.setToolTip(f"{fmt_duration(e['duration'] + e['lunch'])} brutto, davon "
-                                      f"{fmt_duration(e['lunch'])} Mittagspause (abgezogen)")
+                        it.setToolTip(f"{self._f(e['duration'] + e['lunch'])} brutto, davon "
+                                      f"{self._f(e['lunch'])} Mittagspause (abgezogen)")
                     if pause:
                         it.setForeground(QColor("#888"))
                     elif e["running"]:
@@ -915,11 +926,11 @@ class WeekPage(QWidget):
                     t.setItem(r, c, it)
         r = add_row()
         week_target = self.svc.week_target(self.monday)
-        tot =QTableWidgetItem(f"Woche gesamt: {fmt_duration(total)} h   ·   davon verrechenbar "
-                               f"{fmt_duration(sum(billable_day.values(), timedelta()))} h   ·   "
-                               f"Wochenstunden Soll {fmt_duration(week_target)} h   ·   "
+        tot =QTableWidgetItem(f"Woche gesamt: {self._f(total)} h   ·   davon verrechenbar "
+                               f"{self._f(sum(billable_day.values(), timedelta()))} h   ·   "
+                               f"Wochenstunden Soll {self._f(week_target)} h   ·   "
                                f"Differenz {self._diff(total - week_target)} h"
-                               + (f"   ·   Pausen {fmt_duration(sum(pause_day.values(), timedelta()))} h"
+                               + (f"   ·   Pausen {self._f(sum(pause_day.values(), timedelta()))} h"
                                   if show else ""))
         font = tot.font()
         font.setBold(True)
@@ -945,9 +956,8 @@ class WeekPage(QWidget):
             self.refresh()
             self.entries_changed.emit()
 
-    @staticmethod
-    def _diff(td: timedelta) -> str:
-        return ("+" if td >= timedelta() else "–") + fmt_duration(abs(td))
+    def _diff(self, td: timedelta) -> str:
+        return ("+" if td >= timedelta() else "–") + self._f(abs(td))
 
     @staticmethod
     def _row(table: QTableWidget, row: int, values: list[str], bold: bool = False) -> None:
@@ -1018,6 +1028,13 @@ class ReportPage(QWidget):
             cb.toggled.connect(self._save_columns)
             self.column_boxes[key] = cb
             grid.addWidget(cb)
+            if key == "duration":   # direkt neben „Dauer“: Industriezeit statt Std:Min (Vorschau, Excel, PDF)
+                self.industrial = QCheckBox("Industriezeit")
+                self.industrial.setToolTip("Dauer dezimal statt Stunden:Minuten (1,25 = 1 h 15 min) – in der Vorschau, im "
+                                           "Excel-Export und im PDF. Aus (Standard): Stunden:Minuten.")
+                self.industrial.setChecked(self.svc.report_industrial)
+                self.industrial.toggled.connect(self._industrial_toggled)
+                grid.addWidget(self.industrial)
         lay = QVBoxLayout(self)
         lay.addLayout(form)
         lay.addWidget(self.summary)
@@ -1072,6 +1089,13 @@ class ReportPage(QWidget):
         shown = self.show_pauses.isChecked() if with_pauses is None else with_pauses
         return rows if shown else [r for r in rows if r["kind"] != "pause"]
 
+    def _industrial_toggled(self, on: bool) -> None:
+        self.svc.set_report_industrial(on)
+        self._update()
+
+    def _fmt(self):
+        return fmt_industrial if self.industrial.isChecked() else fmt_duration
+
     def _fill_preview(self, rows: list[dict]) -> None:
         cols = self._columns()
         shown = rows[:PREVIEW_ROWS]
@@ -1083,7 +1107,7 @@ class ReportPage(QWidget):
             for n, c in enumerate(cols):
                 v = COLUMNS[c][2](r)
                 text = (f"{v:%d.%m.%Y}" if isinstance(v, date) else f"{v:%H:%M}" if isinstance(v, time) else
-                        fmt_duration(v) if isinstance(v, timedelta) else str(v))
+                        self._fmt()(v) if isinstance(v, timedelta) else str(v))
                 self.preview.setItem(i, n, QTableWidgetItem(text.splitlines()[0] if text else text if c == "note" else text))
         self.preview.resizeColumnsToContents()
         self.preview_note.setText(f"Es werden nur die ersten {PREVIEW_ROWS} von {len(rows)} Einträgen angezeigt."
@@ -1123,8 +1147,8 @@ class ReportPage(QWidget):
         self._fill_preview(rows)
         work = sum((r["duration"] for r in rows if r["kind"] == "work"), timedelta())
         billable = sum((r["duration"] for r in rows if r["kind"] == "work" and r["billable"]), timedelta())
-        self.summary.setText(f"{len(rows)} Einträge, Arbeitszeit gesamt: <b>{fmt_duration(work)} h</b>, "
-                             f"davon verrechenbar: <b>{fmt_duration(billable)} h</b>")
+        self.summary.setText(f"{len(rows)} Einträge, Arbeitszeit gesamt: <b>{self._fmt()(work)} h</b>, "
+                             f"davon verrechenbar: <b>{self._fmt()(billable)} h</b>")
 
     def apply_devops(self) -> None:
         """Ohne DevOps gibt es auch keine Export-Spalte „DevOps“."""
@@ -1152,7 +1176,7 @@ class ReportPage(QWidget):
                        self.project.currentText() if self.project.currentData() is not None else "",
                        mode=self.pdf_mode.currentData(), columns=self._columns(),
                        show_pauses=self.show_pauses.isChecked(), header=self.svc.pdf_header,
-                       layout=self.svc.pdf_layout)
+                       layout=self.svc.pdf_layout, industrial=self.industrial.isChecked())
         except OSError as ex:
             QMessageBox.warning(self, "PDF", f"Datei konnte nicht geschrieben werden:\n{ex}")
             return
@@ -1169,7 +1193,7 @@ class ReportPage(QWidget):
             return
         try:
             export_excel(path, self._rows(with_pauses=True), self.svc.target_for, self._columns(),
-                         show_pauses=self.show_pauses.isChecked())
+                         show_pauses=self.show_pauses.isChecked(), industrial=self.industrial.isChecked())
         except OSError as ex:
             QMessageBox.warning(self, "Export", f"Datei konnte nicht geschrieben werden:\n{ex}")
             return
