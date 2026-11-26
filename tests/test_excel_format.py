@@ -81,11 +81,11 @@ def test_service_settings_default_and_validation():
     from workplanner.db import Database
     from workplanner.service import TimeService
     svc = TimeService(Database())
-    assert svc.excel_time_format == "decimal" and svc.excel_round_minutes == 5
+    assert svc.excel_time_format == "decimal" and svc.excel_round_minutes == 0
     svc.set_excel_format("time", 15)
     assert svc.excel_time_format == "time" and svc.excel_round_minutes == 15
     svc.set_excel_format("quatsch", 7)                                    # ungültig: Standard
-    assert svc.excel_time_format == "decimal" and svc.excel_round_minutes == 5
+    assert svc.excel_time_format == "decimal" and svc.excel_round_minutes == 0
 
 
 # --- Notizen als Zellnotiz ---------------------------------------------------------------------

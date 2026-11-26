@@ -1,7 +1,8 @@
 """Tagesplan: die Einträge eines Tages als Blöcke auf einer Zeitachse (wie ein Kalender), 15-Minuten-Raster.
 
 Block ziehen verschiebt ihn, obere/untere Kante ändert Start bzw. Ende, Doppelklick bearbeitet einen Eintrag, Doppelklick
-auf eine Lücke (gestrichelt, hellblau) legt dort einen Eintrag an. Die Ansicht ändert selbst nichts: sie meldet die
+auf eine Lücke (gestrichelt, hellblau) legt dort einen Eintrag an. Über eine freie Fläche ziehen markiert eine Zeit
+(15-Minuten-Raster); beim Loslassen öffnet sich der Dialog zum Anlegen mit dieser Zeit. Die Ansicht ändert selbst nichts: sie meldet die
 neuen Zeiten über Signale, das Hauptfenster speichert sie über den Dienst."""
 from __future__ import annotations
 
@@ -21,6 +22,8 @@ PX_PER_MIN = 1.15      # Höhe: 69 Pixel je Stunde
 AXIS_W = 58
 GRIP_W = 7             # Breite des Griffs am rechten Rand (Plan breiter/schmaler ziehen)
 EDGE = 7               # Pixel an Ober-/Unterkante eines Blocks, die als Griff zum Ändern gelten
+DAY_START = 7          # Der Plan beginnt immer um diese Stunde (früher nur, wenn es frühere Einträge gibt)
+DAY_END = 22           # ... und reicht mindestens bis hierher: so lässt sich immer scrollen und frei markieren
 DRAG_START = 4         # erst ab so vielen Pixeln Bewegung wird gezogen (ein Klick ändert nichts)
 
 
@@ -129,28 +132,26 @@ class _Canvas(QWidget):
         self.t1 = datetime.combine(self.day, time(16))
         self.labels: dict[int, tuple[str, str, str, QColor]] = {}
         self.drag: dict | None = None
+        self.mark: dict | None = None      # Markierung einer freien Zeit (ziehen über eine leere Fläche)
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.ClickFocus)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
     # --- Daten ---------------------------------------------------------------------------------
     def set_data(self, day: date, entries: list[Entry], now: datetime) -> None:
-        self.day, self.entries, self.now, self.drag = day, list(entries), now, None
+        self.day, self.entries, self.now, self.drag, self.mark = day, list(entries), now, None, None
         midnight = datetime.combine(day, time.min)
         end_of_day = midnight + timedelta(days=1)
-        starts = [e.start for e in entries] or [midnight + timedelta(hours=8)]
-        ends = [e.end or now for e in entries] or [midnight + timedelta(hours=16)]
+        starts = [e.start for e in entries]
+        ends = [e.end or now for e in entries]
         if midnight <= now < end_of_day:
             ends.append(now)
-        first, last = min(starts) - timedelta(minutes=30), max(ends) + timedelta(minutes=30)
-        t0 = max(midnight, first.replace(minute=0, second=0, microsecond=0))
-        t1 = min(end_of_day, (last + timedelta(minutes=59)).replace(minute=0, second=0, microsecond=0))
-        while t1 - t0 < timedelta(hours=6):   # nicht zu knapp, damit der Plan nicht winzig wird
-            if t1 < end_of_day:
-                t1 += timedelta(hours=1)
-            elif t0 > midnight:
-                t0 -= timedelta(hours=1)
-            else:
-                break
+        t0 = midnight + timedelta(hours=DAY_START)       # immer ab 7:00 (früher nur, wenn Einträge davor liegen)
+        if starts and min(starts) < t0:
+            t0 = max(midnight, min(starts).replace(minute=0, second=0, microsecond=0))
+        t1 = midnight + timedelta(hours=DAY_END)         # mindestens bis 22:00, damit immer Platz zum Scrollen ist
+        if ends and max(ends) + timedelta(minutes=30) > t1:
+            t1 = min(end_of_day, (max(ends) + timedelta(minutes=89)).replace(minute=0, second=0, microsecond=0))
         self.t0, self.t1 = t0, t1
         self.labels = {}
         for e in entries:
@@ -205,6 +206,29 @@ class _Canvas(QWidget):
             if self._rect(a, b, min_h=14).contains(pos):
                 return (a, b), "gap"
         return None, ""
+
+    def _free_around(self, at: datetime) -> tuple[datetime, datetime]:
+        """Freier Zeitraum um `at`: vom Ende des vorherigen bis zum Start des nächsten Eintrags (heute höchstens bis jetzt)."""
+        midnight = datetime.combine(self.day, time.min)
+        lo, hi = midnight, midnight + timedelta(days=1)
+        for e in self.entries:
+            if self._end(e) <= at:
+                lo = max(lo, self._end(e))
+            elif e.start >= at:
+                hi = min(hi, e.start)
+        if midnight <= self.now < midnight + timedelta(days=1):
+            hi = min(hi, self.now.replace(second=0, microsecond=0))
+        return lo, hi
+
+    def _marked(self) -> tuple[datetime, datetime] | None:
+        """Markierte Zeit (auf 15 Minuten gerastert, innerhalb der freien Fläche) oder None, wenn zu kurz."""
+        m = self.mark
+        if not m or not m["active"]:
+            return None
+        lo, hi = m["limits"]
+        a, b = sorted((self._snap(m["t0"]), self._snap(self.time_at(m["y"]))))
+        a, b = max(a, lo), min(b, hi)
+        return (a, b) if b - a >= timedelta(minutes=SNAP_MIN) else None
 
     def _limits(self, e: Entry) -> tuple[datetime, datetime]:
         """Frühester Start und spätestes Ende: bis zum Nachbarn, zum Tagesende bzw. (heute) bis jetzt."""
@@ -308,6 +332,23 @@ class _Canvas(QWidget):
         mid, gx = self.height() / 2, self.width() - 3
         p.drawLine(QPointF(gx, mid - 14), QPointF(gx, mid + 14))
 
+        marked = self._marked()
+        if marked:                                                                     # markierte freie Zeit
+            r = self._rect(*marked, min_h=14)
+            fill = QColor(COL.accent)
+            fill.setAlpha(60)
+            p.setBrush(fill)
+            p.setPen(QPen(COL.accent, 2))
+            p.drawRoundedRect(r, 8, 8)
+            text = f"{_fmt(marked[0])}–{_fmt(marked[1])}  ·  {_dur(marked[1] - marked[0])}"
+            w = QFontMetrics(font).horizontalAdvance(text) + 16
+            box = QRectF(min(self.mark["pos"].x() + 14, self.width() - w - 4), self.mark["pos"].y() + 14, w, 22)
+            p.setBrush(QColor("#1f2937"))
+            p.setPen(Qt.NoPen)
+            p.drawRoundedRect(box, 6, 6)
+            p.setPen(QColor("#ffffff"))
+            p.drawText(box, Qt.AlignCenter, text)
+
         if self.drag and self.drag["active"]:                                          # Hinweis beim Ziehen
             d = self.drag
             text = f"{_fmt(d['start'])}–{'läuft' if d['end'] is None else _fmt(d['end'])}"
@@ -364,16 +405,32 @@ class _Canvas(QWidget):
             if len(ids) == 1 or not (ev.modifiers() & Qt.ControlModifier):
                 self.drag = {"e": hit, "mode": zone, "y0": ev.position().y(), "active": False, "pos": ev.position(),
                              "start": hit.start, "end": hit.end, "limits": self._limits(hit)}
-        elif not (ev.modifiers() & Qt.ControlModifier):
-            self.selected = set()
-            self.selection_changed.emit([])
-            self.update()
+        else:
+            if not (ev.modifiers() & Qt.ControlModifier):
+                self.selected = set()
+                self.selection_changed.emit([])
+                self.update()
+            if ev.position().x() > AXIS_W:   # freie Fläche: ziehen markiert eine Zeit
+                at = self.time_at(ev.position().y())
+                self.mark = {"t0": at, "y0": ev.position().y(), "y": ev.position().y(), "pos": ev.position(),
+                             "limits": self._free_around(at), "active": False}
 
     def mouseMoveEvent(self, ev) -> None:
         if self._grip_x is not None:
             x = ev.globalPosition().x()
             self.widen_requested.emit(int(round(x - self._grip_x)))
             self._grip_x = x
+            return
+        if self.mark is not None:
+            m = self.mark
+            if not m["active"] and abs(ev.position().y() - m["y0"]) < DRAG_START:
+                return
+            m["active"], m["y"], m["pos"] = True, ev.position().y(), ev.position()
+            self.setCursor(Qt.CrossCursor)
+            area = self.parentWidget().parentWidget() if self.parentWidget() else None
+            if isinstance(area, QScrollArea):   # am Rand weiterziehen: der Plan rollt mit
+                area.ensureVisible(int(ev.position().x()), int(ev.position().y()), 0, 30)
+            self.update()
             return
         d = self.drag
         if d is None and self._on_grip(ev.position()):
@@ -416,6 +473,14 @@ class _Canvas(QWidget):
             self._grip_x = None
             self.setCursor(Qt.ArrowCursor)
             return
+        marked = self._marked()
+        had_mark, self.mark = self.mark is not None, None
+        if had_mark:
+            self.setCursor(Qt.ArrowCursor)
+            self.update()
+            if marked:
+                self.gap_requested.emit(*marked)
+            return
         d, self.drag = self.drag, None
         self.setCursor(Qt.ArrowCursor)
         if d is None or not d["active"]:
@@ -426,8 +491,16 @@ class _Canvas(QWidget):
         else:
             self.update()
 
+    def keyPressEvent(self, ev) -> None:
+        if ev.key() == Qt.Key_Escape and self.mark is not None:   # Markierung abbrechen
+            self.mark = None
+            self.setCursor(Qt.ArrowCursor)
+            self.update()
+            return
+        super().keyPressEvent(ev)
+
     def mouseDoubleClickEvent(self, ev) -> None:
-        self.drag = None
+        self.drag = self.mark = None
         hit, zone = self._hit(ev.position())
         if isinstance(hit, Entry):
             self.edit_requested.emit(hit.id)
@@ -451,7 +524,8 @@ class DayPlan(QScrollArea):
         self.setFrameShape(QScrollArea.NoFrame)
         self.setStyleSheet("QScrollArea{background:#ffffff;border:1px solid #dde3ee;border-radius:10px}")
         self.setToolTip("Block ziehen: verschieben · Kante ziehen: Start/Ende ändern (15-Minuten-Raster) · "
-                        "Doppelklick: bearbeiten, auf eine Lücke: Eintrag anlegen")
+                        "Doppelklick: bearbeiten, auf eine Lücke: Eintrag anlegen · "
+                        "über eine freie Fläche ziehen: Zeit markieren und Eintrag anlegen (Esc bricht ab)")
         for name in ("selection_changed", "edit_requested", "gap_requested", "retimed", "widen_requested"):
             getattr(self.canvas, name).connect(getattr(self, name))
         self._shown_day: date | None = None
@@ -460,9 +534,10 @@ class DayPlan(QScrollArea):
         bar = self.verticalScrollBar()
         keep = bar.value()
         self.canvas.set_data(day, entries, now)
-        if day != self._shown_day:       # anderer Tag: oben beginnen, sonst bleibt die Lage
+        if day != self._shown_day:       # anderer Tag: zum ersten Eintrag (heute: zu „jetzt“) rollen, sonst bleibt die Lage
             self._shown_day = day
-            bar.setValue(0)
+            first = entries[0].start if entries else (now if now.date() == day else None)
+            bar.setValue(max(0, int(self.canvas.y_of(first - timedelta(minutes=30)))) if first else 0)
         else:
             bar.setValue(keep)
 

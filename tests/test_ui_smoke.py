@@ -1481,3 +1481,60 @@ def test_project_combo_shows_number_pipe_name_and_keeps_the_id(qapp):
     assert [combo.itemData(i, ROLE_NUMBER) for i in range(3)] == ["P-1", "", "P-22-001"]
     assert [combo.itemData(i, ROLE_NAME) for i in range(3)] == ["Alpha", "Meeting", "Beta"]
     assert combo.itemDelegate().number_width > 0
+
+
+def _plan_with_dialog_spy(qapp, monkeypatch):
+    import workplanner.ui.main_window as mw
+    got = []
+
+    class Fake:   # kein modaler Dialog im Test
+        def __init__(self, svc_, day, entry, start, parent, default_end=None):
+            got.append((start, default_end))
+
+        def exec(self):
+            return False
+    monkeypatch.setattr(mw, "EntryDialog", Fake)
+    return got, _plan_window(qapp)
+
+
+def test_day_plan_always_starts_at_seven_and_is_long_enough_to_scroll(qapp):
+    w, svc, c, d = _plan_window(qapp)
+    assert c.t0 == d(7) and c.t1 >= d(22)                   # Einträge um 8 und 10 Uhr: trotzdem ab 7:00 bis 22:00
+    assert c.height() > w.plan.viewport().height()          # es lässt sich scrollen
+    w.close()
+
+
+def test_day_plan_marking_a_free_time_with_the_mouse_asks_for_an_entry(qapp, monkeypatch):
+    from workplanner.ui.day_plan import PX_PER_MIN
+    got, (w, svc, c, d) = _plan_with_dialog_spy(qapp, monkeypatch)
+    _drag(c, c.y_of(d(12)) + 2, c.y_of(d(13, 30)) + 2)      # freie Fläche nach den Einträgen, auf 15 min gerastert
+    assert got == [(d(12), d(13, 30))]
+    _drag(c, c.y_of(d(13, 30)), c.y_of(d(12, 15)))          # auch von unten nach oben
+    assert got[-1] == (d(12, 15), d(13, 30))
+    w.close()
+
+
+def test_day_plan_marking_stays_inside_the_free_area_and_short_or_cancelled_marks_do_nothing(qapp, monkeypatch):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    got, (w, svc, c, d) = _plan_with_dialog_spy(qapp, monkeypatch)
+    _drag(c, c.y_of(d(9, 15)), c.y_of(d(12)))               # Lücke 09–10, dann über den Eintrag 10–11 hinaus: bei 10:00 gestoppt
+    assert got == [(d(9, 15), d(10))]
+    got.clear()
+    _drag(c, c.y_of(d(12)), c.y_of(d(12, 5)))               # weniger als 15 Minuten
+    QTest.mouseClick(c, Qt.LeftButton, Qt.NoModifier, QPoint(300, int(c.y_of(d(12)))))   # einfacher Klick
+    assert got == []
+    QTest.mousePress(c, Qt.LeftButton, Qt.NoModifier, QPoint(300, int(c.y_of(d(12)))))
+    QTest.mouseMove(c, QPoint(300, int(c.y_of(d(14)))))
+    QTest.keyClick(c, Qt.Key_Escape)                        # Abbruch
+    QTest.mouseRelease(c, Qt.LeftButton, Qt.NoModifier, QPoint(300, int(c.y_of(d(14)))))
+    assert got == []
+    w.close()
+
+
+def test_day_plan_marking_today_stops_at_now_and_view_buttons_have_icons(qapp, monkeypatch):
+    got, (w, svc, c, d) = _plan_with_dialog_spy(qapp, monkeypatch)      # „jetzt“ ist 15:00 am 02.11.
+    _drag(c, c.y_of(d(12)), c.y_of(d(18)))                  # bis 18:00 gezogen: nur bis jetzt
+    assert got == [(d(12), d(15))]
+    assert not w.view_buttons["list"].icon().isNull() and not w.view_buttons["plan"].icon().isNull()
+    w.close()

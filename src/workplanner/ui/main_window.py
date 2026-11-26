@@ -7,7 +7,7 @@ import os
 import sys
 from datetime import date, datetime, time, timedelta
 
-from PySide6.QtCore import QEvent, QItemSelectionModel, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QItemSelectionModel, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox, QSystemTrayIcon,
                                QProgressBar, QPushButton, QScrollArea, QSplitter, QSplitterHandle, QStackedWidget, QTableWidget, QTableWidgetItem, QTabWidget,
@@ -24,6 +24,7 @@ from ..timeline import PAUSE, TimelineError, removed_entries
 from .dialogs import CalendarDialog, EntryDialog, MergeDialog, ask_lunch_pause, ask_pause_times, NoteEdit, RunningTimeDialog, fmt_duration, fmt_time, note_one_line
 from . import theme
 from .day_plan import DayPlan
+from .icons import line_icon, toggle_icon
 from .devops_page import DevOpsPage
 from .feature_panel import FeatureFeed, FeaturePanel, to_cache
 from .tiles import TileButton
@@ -528,7 +529,10 @@ class MainWindow(QMainWindow):
         self.progress = QProgressBar()
         self.progress.setMaximumWidth(220)
         self.progress.setTextVisible(True)
-        cal = QPushButton("📅 Kalender")
+        cal = QPushButton()   # nur das Symbol (der Hinweis erklärt es)
+        cal.setIcon(line_icon("calendar"))
+        cal.setIconSize(QSize(18, 18))
+        cal.setAccessibleName("Kalender")
         cal.setToolTip("Datum im Kalender auswählen")
         cal.clicked.connect(self._pick_date)
         for w in (prev, self.day_label, nxt, cal, today):
@@ -540,6 +544,8 @@ class MainWindow(QMainWindow):
                                               ("plan", "Tagesplan", "Einträge als Blöcke auf der Zeitachse; per Maus "
                                                                     "verschieben und in der Länge ändern"))):
             b = QPushButton(text)
+            b.setIcon(toggle_icon(key))
+            b.setIconSize(QSize(16, 16))
             b.setCheckable(True)
             b.setToolTip(tip)
             b.setStyleSheet(
@@ -991,7 +997,7 @@ class MainWindow(QMainWindow):
         self._edit()
 
     def _add_in_gap(self, start: datetime, end: datetime) -> None:
-        """Eintrag in eine Lücke einfügen (Doppelklick auf die Lücke)."""
+        """Eintrag in eine Zeit einfügen (Doppelklick auf eine Lücke oder mit der Maus eine freie Zeit markiert)."""
         if EntryDialog(self.svc, self.day, None, start.replace(second=0, microsecond=0), self,
                        default_end=end.replace(second=0, microsecond=0)).exec():
             self.refresh()

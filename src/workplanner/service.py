@@ -256,12 +256,12 @@ class TimeService:
         try:
             value = int(self.db.get_setting("excel_round_minutes"))
         except ValueError:
-            return 5
-        return value if value in self.EXCEL_ROUND_STEPS else 5
+            return 0
+        return value if value in self.EXCEL_ROUND_STEPS else 0
 
     def set_excel_format(self, time_format: str, round_minutes: int) -> None:
         self.db.set_setting("excel_time_format", "time" if time_format == "time" else "decimal")
-        self.db.set_setting("excel_round_minutes", str(round_minutes if round_minutes in self.EXCEL_ROUND_STEPS else 5))
+        self.db.set_setting("excel_round_minutes", str(round_minutes if round_minutes in self.EXCEL_ROUND_STEPS else 0))
 
     def set_pause(self, start: time, minutes: int) -> None:
         self.db.set_setting("pause_start", start.strftime("%H:%M"))

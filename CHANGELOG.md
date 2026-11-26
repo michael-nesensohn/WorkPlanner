@@ -3,6 +3,16 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.34
+- **Tagesplan: Zeit mit der Maus markieren.** Über eine freie Fläche ziehen (15-Minuten-Raster, auch vor dem ersten und
+  nach dem letzten Eintrag): beim Loslassen öffnet sich „Eintrag hinzufügen“ mit Start und Ende. Die Markierung bleibt
+  zwischen den Nachbareinträgen (heute höchstens bis jetzt); Esc bricht ab.
+- **Tagesplan immer scrollbar:** Die Zeitachse beginnt immer um 7:00 und reicht mindestens bis 22:00 (bei früheren
+  oder späteren Einträgen länger). Beim Öffnen eines Tages rollt der Plan zum ersten Eintrag bzw. zu „jetzt“.
+- **Symbole:** Der Kalender-Knopf zeigt nur noch das Symbol; „Liste“ und „Tagesplan“ haben je ein Symbol.
+- **Excel-Stundenzettel: Standard „nicht runden“** (bisher 5 Minuten). Bestehende Installationen behalten ihre
+  gespeicherte Einstellung (Einstellungen → Excel → Runden).
+
 ## 0.1.33
 - **Industriezeit zuschaltbar** (Standard: aus, Stunden:Minuten): In **Woche** gibt es neben dem Datum den Haken
   „Industriezeit“; er gilt für „Übersicht“ und „Einträge“ (1,25 = 1 h 15 min). In **Berichte** steht der Haken direkt
