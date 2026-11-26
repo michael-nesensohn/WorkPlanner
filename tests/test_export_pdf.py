@@ -87,3 +87,27 @@ def test_pdf_header_setting_roundtrip(tmp_path):
     assert svc.pdf_header == {"title": "", "name": "", "company": "", "extra": ""}
     svc.set_pdf_header({"title": " Bericht ", "name": "X", "unknown": "y"})
     assert svc.pdf_header["title"] == "Bericht" and svc.pdf_header["name"] == "X"
+
+
+def pause_rows():
+    p = row(12, 13, "Mittagspause", "", "", number="", kind="pause", billable=False)
+    return [row(8, 12, "A", "Tätig", "n"), p, row(13, 15, "A", "Tätig", "m")]
+
+
+def test_pauses_are_left_out_of_the_pdf_by_default():
+    for mode in ("summary", DETAIL):
+        html = build_html(pause_rows(), timedelta(hours=8), D, D, mode=mode)
+        assert "Pausen:" not in html and "Pausen 1:00" not in html and "Mittagspause" not in html
+
+
+def test_pauses_appear_in_summary_and_detail_when_chosen():
+    summary = build_html(pause_rows(), timedelta(hours=8), D, D, show_pauses=True)
+    assert "Pausen: 1:00 h" in summary and "Pausen 1:00 h" in summary             # Kopfzeile und Tagesüberschrift
+    assert "Mittagspause" in summary and "12:00–13:00" in summary                  # Zeile je Pause-Eintrag
+    detail = build_html(pause_rows(), timedelta(hours=8), D, D, mode=DETAIL, show_pauses=True)
+    assert "Mittagspause" in detail and "Pausen: 1:00 h" in detail
+
+
+def test_day_without_any_pause_shows_no_pause_row_even_when_chosen():
+    html = build_html([row(8, 9, "A", "T", "n")], timedelta(hours=8), D, D, show_pauses=True)
+    assert "Mittagspause" not in html and "Pausen 0" not in html

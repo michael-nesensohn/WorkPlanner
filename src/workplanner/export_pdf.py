@@ -16,6 +16,7 @@ WEEKDAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"
 SUMMARY, DETAIL = "summary", "detail"
 DEFAULT_LAYOUT = {"heading": 12, "text": 8, "landscape": True}   # Schriftgrößen in pt
 _size = {"heading": 12, "text": 8}   # gilt für den gerade erzeugten Bericht (build_html setzt es)
+RESOLUTION = 600   # dpi des PDFs: bei niedriger Auflösung rastert Qt die Buchstabenabstände grob (fette Schrift wirkt verschmiert)
 DEFAULT_COLUMNS = ["date", "duration", "billable", "project_number", "project", "activity", "note", "devops"]
 
 
@@ -77,7 +78,7 @@ def _day_totals(day_rows: list[dict]) -> tuple[timedelta, timedelta]:
     return work, pause
 
 
-def _summary_table(day_rows: list[dict], cols: set[str]) -> str:
+def _summary_table(day_rows: list[dict], cols: set[str], show_pauses: bool = False) -> str:
     """Je Projekt eine Kopfzeile (Nummer, Name, Gesamtdauer), darunter je Tätigkeit die Notizen."""
     show_dur = "duration" in cols
     show_act, show_note = "activity" in cols, "note" in cols
@@ -101,7 +102,29 @@ def _summary_table(day_rows: list[dict], cols: set[str]) -> str:
                 c = (_td(a["activity"]) if show_act else "") + (_td(a["notes"]) if show_note else "")
                 c += _td(fmt_hm(a["duration"]), "right") if show_dur else ""
                 rows.append(f"<tr>{c}</tr>")
+    if show_pauses:
+        rows += _pause_rows(day_rows, head, span, show_dur, show_act, show_note)
     return _table("".join(rows))
+
+
+def _pause_rows(day_rows: list[dict], head: str, span: int, show_dur: bool, show_act: bool, show_note: bool) -> list[str]:
+    """Zusammenfassung: Kopfzeile „Pausen“ mit der Tagessumme, darunter je Pause-Eintrag die Zeit."""
+    _, pause = _day_totals(day_rows)
+    if pause <= timedelta(0):
+        return []
+    style = "color:#555555;font-weight:700;"
+    both = show_dur and span > 1
+    cells = _td("Pausen", style=style, extra=f' bgcolor="#eeeeee" colspan="{span - 1 if both else span}"')
+    if both:
+        cells += _td(fmt_hm(pause), "right", style, ' bgcolor="#eeeeee"')
+    out = [f"<tr>{cells}</tr>"]
+    if head:
+        for r in sorted((r for r in day_rows if r["kind"] == "pause"), key=lambda r: r["start"]):
+            c = (_td(r["project"] or "Pause", style="color:#777777;") if show_act else "")
+            c += (_td(f"{r['start']:%H:%M}–{r['end']:%H:%M}", style="color:#777777;") if show_note else "")
+            c += _td(fmt_hm(r["duration"]), "right", "color:#777777;") if show_dur else ""
+            out.append(f"<tr>{c}</tr>")
+    return out
 
 
 def _detail_table(day_rows: list[dict], cols: set[str], show_pauses: bool) -> str:
@@ -157,9 +180,10 @@ def build_html(rows: list[dict], daily_target: timedelta, first: date, last: dat
         out.append(f'<p style="color:#222222;font-size:{n}pt">{"<br>".join(lines)}</p>')
     project = f" · Projekt: <b>{escape(project_name)}</b>" if project_name else ""
     billable_text = f" · davon verrechenbar: <b>{fmt_hm(billable)} h</b>" if "billable" in cols else ""
+    pause_text = f" · Pausen: {fmt_hm(pause_total)} h" if show_pauses else ""
     out.append(f'<p style="color:#222222;font-size:{n}pt">Zeitraum: <b>{first:%d.%m.%Y} – {last:%d.%m.%Y}</b>{project}<br>'
                f'Arbeitszeit (ohne Pausen): <b>{fmt_hm(total)} h</b>{billable_text}'
-               f' · Pausen: {fmt_hm(pause_total)} h</p>')
+               f'{pause_text}</p>')
 
     totals: dict[str, dict] = {}   # Summe je Projekt über den ganzen Zeitraum
     for r in work_rows:
@@ -189,8 +213,8 @@ def build_html(rows: list[dict], daily_target: timedelta, first: date, last: dat
         day_rows = [r for r in rows if r["date"] == d]
         work, pause = _day_totals(day_rows)
         out.append(f'<h3 style="color:{ACCENT};font-size:{h}pt">{WEEKDAYS[d.weekday()]}, {d:%d.%m.%Y}'
-                   f' &nbsp;–&nbsp; Arbeitszeit {fmt_hm(work)} h{f" · Pausen {fmt_hm(pause)} h" if pause else ""}</h3>')
-        out.append(_summary_table(day_rows, cols) if mode == SUMMARY else _detail_table(day_rows, cols, show_pauses))
+                   f' &nbsp;–&nbsp; Arbeitszeit {fmt_hm(work)} h{f" · Pausen {fmt_hm(pause)} h" if pause and show_pauses else ""}</h3>')
+        out.append(_summary_table(day_rows, cols, show_pauses) if mode == SUMMARY else _detail_table(day_rows, cols, show_pauses))
     if not rows:
         out.append('<p style="color:#555555;font-size:{n}pt">Im gewählten Zeitraum gibt es keine Einträge.</p>')
     return (f'<html><body style="font-family:Segoe UI,Arial;font-size:{n}pt;color:#222222">'
@@ -209,9 +233,10 @@ def export_pdf(path: str | Path, rows: list[dict], daily_target: timedelta, firs
     writer.setPageSize(QPageSize(QPageSize.A4))
     writer.setPageOrientation(QPageLayout.Landscape if lay["landscape"] else QPageLayout.Portrait)
     writer.setPageMargins(QMarginsF(10, 10, 10, 10), QPageLayout.Millimeter)
-    writer.setResolution(120)
+    writer.setResolution(RESOLUTION)
     writer.setTitle((header or {}).get("title") or "Zeitbericht")
     doc = QTextDocument()
+    doc.documentLayout().setPaintDevice(writer)   # Schriftmaße in der Auflösung des PDFs, nicht des Bildschirms
     doc.setDocumentMargin(0)   # die Seitenränder stellt der Writer ein
     doc.setPageSize(QSizeF(writer.width(), writer.height()))   # sonst addiert Qt einen eigenen, großen Rand
     doc.setHtml(build_html(rows, daily_target, first, last, project_name, mode, columns, show_pauses, header, lay))

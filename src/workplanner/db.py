@@ -128,6 +128,10 @@ class Database:
             self.conn.execute("ALTER TABLE entries ADD COLUMN devops_id INTEGER")
         if "resume" not in have:
             self.conn.execute("ALTER TABLE entries ADD COLUMN resume TEXT NOT NULL DEFAULT ''")
+        have = {r["name"] for r in self.conn.execute("PRAGMA table_info(excel_exported)")}
+        for col in ("number", "name"):   # Nummer/Name des Projekts: damit „Vorher löschen“ die Zelle wiederfindet
+            if col not in have:
+                self.conn.execute(f"ALTER TABLE excel_exported ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
         for k, v in DEFAULT_SETTINGS.items():
             self.conn.execute("INSERT OR IGNORE INTO settings VALUES (?, ?)", (k, v))
         self.conn.commit()
@@ -226,10 +230,22 @@ class Database:
                                  (file.casefold(), first, last)).fetchall()
         return {(r[0], r[1]): r[2] for r in rows}
 
-    def mark_excel_exported(self, file: str, rows: list[tuple[str, str, float]]) -> None:
+    def mark_excel_exported(self, file: str, rows: list[tuple]) -> None:
+        """Zeilen (Tag, Schlüssel, Stunden) oder (Tag, Schlüssel, Stunden, Nummer, Name)."""
         with self.conn:
-            self.conn.executemany("INSERT OR REPLACE INTO excel_exported (file, day, key, hours) VALUES (?, ?, ?, ?)",
-                                  [(file.casefold(), d, k, h) for d, k, h in rows])
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO excel_exported (file, day, key, hours, number, name) VALUES (?, ?, ?, ?, ?, ?)",
+                [(file.casefold(), r[0], r[1], r[2], *(r[3:5] if len(r) >= 5 else ("", ""))) for r in rows])
+
+    def excel_exported_projects(self, file: str, first: str, last: str) -> list[tuple[str, str, str]]:
+        """(Tag, Nummer, Name) der schon eingetragenen Projekte; ohne gemerkte Angaben aus dem Schlüssel abgeleitet."""
+        out = []
+        for day, key, number, name in self.conn.execute(
+                "SELECT day, key, number, name FROM excel_exported WHERE file = ? AND day BETWEEN ? AND ? ORDER BY day, key",
+                (file.casefold(), first, last)).fetchall():
+            kind, _, rest = key.partition("|")
+            out.append((day, number or (rest if kind == "nr" else ""), name or (rest if kind == "name" else "")))
+        return out
 
     def clear_excel_exported(self, file: str, first: str, last: str) -> int:
         with self.conn:

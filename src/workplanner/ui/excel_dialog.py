@@ -8,8 +8,8 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QMessageBox, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QLabel,
                                QPushButton, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
-from ..excel_timesheet import (DayHours, ExcelError, ExcelWorkbook, Plan, aggregate, apply_plan, hours_text,
-                               plan_all, read_sheet_view)
+from ..excel_timesheet import (CLEAR_ALL, CLEAR_MARKED, ClearedWorkbook, DayHours, ExcelError, ExcelWorkbook, Plan,
+                               aggregate, apply_clear, apply_plan, hours_text, plan_all, plan_clear, read_sheet_view)
 from ..service import TimeService
 from .background import BackgroundRunner
 from .sheet_preview import SheetPreview
@@ -70,6 +70,26 @@ class ExcelExportDialog(QDialog):
         for w in (QLabel("Steht schon ein Wert in Excel:"), self.conflict, self.skip_done, self.notes_cb, reset):
             options.addWidget(w)
         options.addStretch(1)
+        self.clear_cb = QCheckBox("Vorher löschen und neu eintragen")
+        self.clear_cb.setToolTip("Leert zuerst die Stundenzellen samt Notizen und trägt dann alles neu ein (die Merker "
+                                 "des Zeitraums werden dabei zurückgesetzt). Die Vorschau zeigt rot, was gelöscht wird; "
+                                 "vor dem Löschen wird nachgefragt.")
+        self.clear_scope = QComboBox()
+        self.clear_scope.addItem("nur, was WorkPlanner eingetragen hat", CLEAR_MARKED)
+        self.clear_scope.addItem("alle Stundenzellen im Zeitraum", CLEAR_ALL)
+        self.clear_scope.setToolTip("Nur Zellen von WorkPlanner: von Hand in Excel geschriebene Stunden bleiben stehen. "
+                                    "Alle Stundenzellen: leert auch Handeingaben. Formeln, Summen, Projektnummern und "
+                                    "Namen werden nie angefasst.")
+        self.clear_scope.setEnabled(False)
+        self.clear_cb.toggled.connect(self._clear_toggled)
+        self.clear_scope.currentIndexChanged.connect(self._clear_toggled)
+        clear_row = QHBoxLayout()
+        clear_row.addWidget(self.clear_cb)
+        clear_row.addWidget(self.clear_scope)
+        clear_row.addStretch(1)
+        self.clear_info = QLabel()
+        self.clear_info.setWordWrap(True)
+        self.clear_info.setStyleSheet("color:#a12a2a")
         self.info = QLabel(f"Datei: <b>{service.excel_path or '(nicht eingestellt)'}</b> · Vorlage: <b>{service.excel_profile.name}</b><br>"
                            "Pro Projekt und Tag werden die Stunden (ohne Mittagspause) in die Tagesspalte des "
                            "Blatts des jeweiligen Monats eingetragen.")
@@ -99,6 +119,7 @@ class ExcelExportDialog(QDialog):
         legend = QLabel("<span style='background:#c6efce'>&nbsp;neu&nbsp;</span> "
                         "<span style='background:#fcd9a6'>&nbsp;ersetzt vorhandenen Wert&nbsp;</span> "
                         "<span style='background:#e2f0d9'>&nbsp;neue Projektzeile&nbsp;</span> "
+                        "<span style='background:#f6c7c7'>&nbsp;wird vorher gelöscht&nbsp;</span> "
                         "· alles andere bleibt, wie es in der Datei steht (zuletzt gespeicherter Stand)")
         self.sheet_note = QLabel()
         self.sheet_view = SheetPreview()
@@ -120,7 +141,9 @@ class ExcelExportDialog(QDialog):
         lay.addWidget(self.info)
         lay.addLayout(top)
         lay.addLayout(options)
+        lay.addLayout(clear_row)
         lay.addWidget(self.status)
+        lay.addWidget(self.clear_info)
         lay.addWidget(self.tabs, 1)
         lay.addWidget(self.warnings)
         lay.addWidget(self.buttons)
@@ -134,10 +157,15 @@ class ExcelExportDialog(QDialog):
             return
         items = aggregate(self.svc.report_rows(first, last), self.svc.excel_include_pause, self.svc.excel_round_minutes,
                           self.svc.excel_time_format == "time", self.notes_cb.isChecked())  # Datenbank nur im GUI-Thread lesen
-        done = self.svc.excel_exported(first, last) if self.skip_done.isChecked() else {}
+        clear = self.clear_cb.isChecked()   # beim Neueintragen zählt alles, auch schon Eingetragenes
+        done = self.svc.excel_exported(first, last) if self.skip_done.isChecked() and not clear else {}
         self._items = [it for it in items if abs(done.get((it.day.isoformat(), self._mark_key(it)), -1) - it.hours) > 1e-6]
         self._skipped = len(items) - len(self._items)
-        if not self._items:
+        scope = self.clear_scope.currentData()
+        marked = [DayHours(d, nr, name, 0.0) for d, nr, name in self.svc.excel_exported_projects(first, last)] if clear else []
+        if clear and (self._items or marked or scope == CLEAR_ALL):
+            pass   # es gibt etwas zu löschen und/oder einzutragen
+        elif not self._items:
             self.table.setRowCount(0)
             self.warnings.setText("")
             self.status.setText("Im Zeitraum sind keine Stunden gebucht." if not items else
@@ -152,7 +180,10 @@ class ExcelExportDialog(QDialog):
 
         def job():
             with factory(path, save=False) as book:
-                return plan_all(book, items, profile)
+                clears = plan_clear(book, scope, marked, first, last, profile) if clear else []
+                plan = plan_all(ClearedWorkbook(book, clears) if clears else book, items, profile)
+                plan.clears = clears
+                return plan
         self._bg.run(job, self._on_planned, expected=(ExcelError,))
 
     def _on_planned(self, plan, error) -> None:
@@ -163,7 +194,7 @@ class ExcelExportDialog(QDialog):
             return
         self._plan = plan
         self._views: dict[str, object] = {}   # Blattansichten gelten nur für diese Vorschau
-        names = list(dict.fromkeys(ln.sheet for ln in plan.lines))
+        names = list(dict.fromkeys([ln.sheet for ln in plan.lines] + [c.sheet for c in plan.clears]))
         self.sheet_combo.blockSignals(True)
         self.sheet_combo.clear()
         for name in names:
@@ -195,8 +226,9 @@ class ExcelExportDialog(QDialog):
                             + (f", <b>{replaced} vorhandene Werte werden ersetzt</b> (orange)" if replaced else "")
                             + (f", {self._skipped} schon eingetragene übersprungen" if self._skipped else "") + ".")
         self.warnings.setText("<b>Nicht eingetragen:</b><br>" + "<br>".join(plan.warnings) if plan.warnings else "")
-        self.ok.setEnabled(plan.writable)
-        self.ok.setText(f"{len(plan.lines)} Wert(e) in Excel eintragen")
+        self.ok.setEnabled(plan.writable or bool(plan.clears))
+        self.ok.setText(self._ok_text(len(plan.lines)))
+        self._show_clear_info(plan)
         self._conflict_changed()
 
     # --- Ansicht „wie in Excel“ ----------------------------------------------------------------
@@ -227,7 +259,8 @@ class ExcelExportDialog(QDialog):
         plan = self._plan
         lines = [ln for ln in plan.lines if ln.sheet == sheet]
         setups = [s for s in plan.setups if s.sheet == sheet]
-        self.sheet_view.show_plan(self._views[sheet], lines, setups)
+        clears = [c for c in plan.clears if c.sheet == sheet]
+        self.sheet_view.show_plan(self._views[sheet], lines, setups, clears)
         replaced = sum(ln.overwrites for ln in lines)
         self.sheet_note.setText(f"{len(lines)} Wert(e) auf diesem Blatt" + (f", {len(setups)} neue Projektzeile(n)" if setups else "")
                                 + (f", <b>{replaced} ersetzen vorhandene Werte</b>" if replaced else "") + ".")
@@ -247,8 +280,44 @@ class ExcelExportDialog(QDialog):
         if self._plan is not None:
             keep = sum(ln.overwrites for ln in self._plan.lines) if mode == "excel" else 0
             count = len(self._plan.lines) - keep
-            self.ok.setText(f"{count} Wert(e) in Excel eintragen")
-            self.ok.setEnabled(count > 0)
+            self.ok.setText(self._ok_text(count))
+            self.ok.setEnabled(count > 0 or bool(self._plan.clears))
+
+    def _ok_text(self, count: int) -> str:
+        cleared = len(self._plan.clears) if self._plan else 0
+        return (f"{cleared} Zelle(n) löschen und " if cleared else "") + f"{count} Wert(e) in Excel eintragen"
+
+    def _clear_toggled(self, *_) -> None:
+        """Löschen ein-/ausgeschaltet oder Umfang geändert: die Vorschau gilt nicht mehr."""
+        on = self.clear_cb.isChecked()
+        self.clear_scope.setEnabled(on)
+        self.skip_done.setEnabled(not on)
+        self._plan = None
+        self.ok.setEnabled(False)
+        self.ok.setText("In Excel eintragen")
+        self.clear_info.setText("")
+        self.status.setText("Bitte „Vorschau“ drücken." if on else "")
+
+    def _show_clear_info(self, plan: Plan) -> None:
+        if not plan.clears:
+            self.clear_info.setText("<b>Es gibt nichts zu löschen.</b>" if self.clear_cb.isChecked() else "")
+            return
+        notes = sum(bool(c.old_note.strip()) for c in plan.clears)
+        shown = [f"{c.sheet.strip()}!{c.address} {c.project} {c.day:%d.%m.}" for c in plan.clears[:8]]
+        more = f" … und {len(plan.clears) - 8} weitere" if len(plan.clears) > 8 else ""
+        self.clear_info.setText(f"<b>Vorher gelöscht werden {len(plan.clears)} Zelle(n)"
+                                + (f" und {notes} Notiz(en)" if notes else "") + ":</b> " + ", ".join(shown) + more)
+
+    def _confirm_clear(self, clears: list) -> bool:
+        notes = sum(bool(c.old_note.strip()) for c in clears)
+        backup = ("Eine Sicherung der Datei wird vorher angelegt." if self.svc.excel_backup else
+                  "Es ist KEINE Sicherung eingestellt: nach dem Speichern lässt sich das nicht rückgängig machen.")
+        answer = QMessageBox.question(
+            self, "Vorher löschen?",
+            f"{len(clears)} Zelle(n)" + (f" und {notes} Notiz(en)" if notes else "") + " werden in Excel gelöscht, "
+            f"danach werden {len(self._plan.lines)} Wert(e) neu eingetragen.\n\n{backup}",
+            QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel)
+        return answer == QMessageBox.Yes
 
     def _reset_marks(self) -> None:
         n = self.svc.clear_excel_exported(self.first.date().toPython(), self.last.date().toPython())
@@ -270,7 +339,10 @@ class ExcelExportDialog(QDialog):
 
     # --- Eintragen -----------------------------------------------------------------------------
     def _write(self) -> None:
-        if not self._plan or not self._plan.writable:
+        if not self._plan or not (self._plan.writable or self._plan.clears):
+            return
+        clear = self.clear_cb.isChecked() and bool(self._plan.clears)
+        if clear and not self._confirm_clear(self._plan.clears):
             return
         conflicts = sum(ln.overwrites for ln in self._plan.lines)
         mode = self.conflict.currentData()
@@ -289,16 +361,22 @@ class ExcelExportDialog(QDialog):
                 return
         path, save, items, profile = self.svc.excel_path, self.svc.excel_save, self._items, self.svc.excel_profile
         factory = self._factory
+        first, last = self.first.date().toPython(), self.last.date().toPython()
+        scope = self.clear_scope.currentData()
+        marked = [DayHours(d, nr, name, 0.0) for d, nr, name in self.svc.excel_exported_projects(first, last)] if clear else []
         self.ok.setEnabled(False)
         self.preview_btn.setEnabled(False)
         self.status.setText("Wird in Excel eingetragen …")
 
         def job():
             with factory(path, save=save) as book:
-                fresh = plan_all(book, items, profile)  # neu planen: die Datei kann sich seit der Vorschau geändert haben
+                # neu planen: die Datei kann sich seit der Vorschau geändert haben; erst leeren, dann eintragen
+                cleared = apply_clear(book, plan_clear(book, scope, marked, first, last, profile)) if clear else (0, 0)
+                fresh = plan_all(book, items, profile)
                 if keep_existing:
                     fresh.lines = [ln for ln in fresh.lines if not ln.overwrites]
-                return apply_plan(book, fresh), (fresh.warnings, [(ln.day, ln.project) for ln in fresh.lines])
+                return (apply_plan(book, fresh),
+                        (fresh.warnings, [(ln.day, ln.project) for ln in fresh.lines], cleared))
         self._bg.run(job, lambda value, error: self._on_written(*(value if error is None else (None, error))),
                      expected=(ExcelError,))
 
@@ -308,11 +386,15 @@ class ExcelExportDialog(QDialog):
             self.status.setText(f"<span style='color:#c0392b'>⚠ {info}</span>")
             self.ok.setEnabled(True)
             return
-        _, written_lines = info
+        _, written_lines, cleared = info
         done = set(written_lines)   # nur was wirklich geschrieben wurde, wird als eingetragen gemerkt
-        self.svc.mark_excel_exported([(it.day, self._mark_key(it), it.hours) for it in self._items
+        if cleared != (0, 0) or self.clear_cb.isChecked():   # neu eintragen: alte Merker des Zeitraums verwerfen
+            self.svc.clear_excel_exported(self.first.date().toPython(), self.last.date().toPython())
+        self.svc.mark_excel_exported([(it.day, self._mark_key(it), it.hours, it.number, it.name) for it in self._items
                                       if (it.day, it.label) in done])
         saved = "und gespeichert" if self.svc.excel_save else "(noch nicht gespeichert – in Excel speichern!)"
         backup = f" Sicherung: {self._backup_note}" if getattr(self, "_backup_note", "") else ""
-        self.status.setText(f"✓ {written} Wert(e) in Excel eingetragen {saved}.{backup}")
+        gone = f" Vorher gelöscht: {cleared[0]} Zelle(n), {cleared[1]} Notiz(en)." if cleared != (0, 0) else ""
+        self.status.setText(f"✓ {written} Wert(e) in Excel eingetragen {saved}.{gone}{backup}")
+        self.clear_info.setText("")
         self.ok.setEnabled(False)

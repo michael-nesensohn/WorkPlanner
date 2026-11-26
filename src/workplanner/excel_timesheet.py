@@ -388,10 +388,27 @@ class Plan:
     warnings: list[str] = field(default_factory=list)
     unplaced: list["DayHours"] = field(default_factory=list)   # Tage ohne Spalte in diesem Blatt (siehe plan_month)
     layout: "Layout | None" = None
+    clears: list["ClearLine"] = field(default_factory=list)   # Zellen, die vorher geleert werden („Vorher löschen“)
 
     @property
     def writable(self) -> bool:
         return bool(self.lines)
+
+
+@dataclass
+class ClearLine:
+    """Eine Stundenzelle samt Notiz, die vor dem Eintragen geleert wird."""
+    sheet: str
+    day: date
+    project: str
+    row: int
+    col: int
+    old: object          # bisheriger Wert (None = leer)
+    old_note: str = ""   # bisherige Notiz
+
+    @property
+    def address(self) -> str:
+        return f"{col_letter(self.col)}{self.row}"
 
 
 def _not_in_blocks(it: DayHours, where: str = "des Blatts") -> str:
@@ -589,6 +606,132 @@ def apply_plan(workbook: "WorkbookAccess", plan: Plan) -> int:
         if set_note and line.note_action in ("neu", "ersetzt"):
             set_note(line.row, line.col, line.note.strip())
     return len(plan.lines)
+
+
+# ------------------------------------------------------------------ „Vorher löschen“
+
+CLEAR_MARKED, CLEAR_ALL = "marked", "all"
+
+
+def _read_note(sheet, row: int, col: int) -> str:
+    read = getattr(sheet, "note", None)
+    return (read(row, col) or "") if read else ""
+
+
+def plan_clear(workbook: "WorkbookAccess", scope: str, marked: list[DayHours], first: date, last: date,
+               profile: ExcelProfile | None = None) -> list[ClearLine]:
+    """Welche Zellen werden vor dem Eintragen geleert?
+    `CLEAR_MARKED`: nur die Zellen, die WorkPlanner früher eingetragen hat (`marked`: Tag + Projekt aus den Merkern);
+    `CLEAR_ALL`: alle Stundenzellen der Projektzeilen an den Tagen von `first` bis `last`.
+    Formelzellen, Summenzeilen, Projektnummern und Namen werden nie angefasst."""
+    profile = (profile or DEFAULT_PROFILE).validate()
+    if scope == CLEAR_ALL:
+        return _plan_clear_range(workbook, first, last, profile)
+    if not marked:
+        return []
+    # Wie beim Eintragen planen (gleiche Zeilensuche, auch im Nachbarblatt); die Notiz-Angabe sorgt dafür, dass die
+    # vorhandene Notiz mitgelesen wird. Nur vorhandene Zeilen interessieren, neue Zeilen gäbe es nichts zu leeren.
+    plan = plan_all(workbook, [DayHours(m.day, m.number, m.name, 0.0, note="?") for m in marked], profile)
+    return [ClearLine(ln.sheet, ln.day, ln.project, ln.row, ln.col, ln.old, ln.old_note)
+            for ln in plan.lines if ln.action == "vorhanden" and (ln.old is not None or ln.old_note.strip())]
+
+
+def _plan_clear_range(workbook: "WorkbookAccess", first: date, last: date, profile: ExcelProfile) -> list[ClearLine]:
+    names = {n.strip().casefold(): n for n in workbook.sheet_names()}
+    cache: dict[tuple[int, int], tuple | None] = {}
+
+    def info(y: int, m: int):
+        if (y, m) not in cache:
+            real = names.get(profile.sheet_name_for(m, y).strip().casefold())
+            cache[y, m] = None
+            if real is not None:
+                sheet = workbook.sheet(real)
+                try:
+                    grid = sheet.grid(GRID_ROWS, GRID_COLS)
+                    cache[y, m] = (sheet, grid, detect_layout(grid, m, y, profile))
+                except ExcelError:
+                    pass   # anderer Aufbau: dort ist nichts zu leeren
+        return cache[y, m]
+
+    out: list[ClearLine] = []
+    day = first
+    while day <= last:
+        y, m = day.year, day.month   # erst das Blatt des eigenen Monats, dann die Nachbarn (wie beim Eintragen)
+        nxt, prev = (y + (m == 12), m % 12 + 1), (y - (m == 1), 12 if m == 1 else m - 1)
+        for key in [(y, m)] + ([nxt, prev] if day.day > 15 else [prev, nxt]):
+            found = info(*key)
+            col = found[2].column_for(day) if found else None
+            if col is None:
+                continue
+            sheet, grid, layout = found
+            for r in range(layout.row_first, layout.row_scan_end + 1):
+                old = grid[r - 1][col - 1]
+                note = _read_note(sheet, r, col)
+                if _is_zero(old) and not note.strip():
+                    continue
+                if not _is_zero(old) and sheet.formula(r, col).startswith("="):
+                    continue
+                label = (_text(grid[r - 1][layout.col_name - 1]) if layout.col_name else "") or \
+                        (_text(grid[r - 1][layout.col_nr - 1]) if layout.col_nr else "")
+                out.append(ClearLine(sheet.name, day, label, r, col, None if _is_zero(old) else old, note))
+            break
+        day += timedelta(days=1)
+    return out
+
+
+class _ClearedSheet:
+    """Ein Blatt, so wie es nach dem Leeren aussähe (nur für die Planung; die Datei bleibt unverändert)."""
+
+    def __init__(self, sheet, cells: set[tuple[int, int]]):
+        self._sheet, self._cells = sheet, cells
+
+    def __getattr__(self, name):
+        if name == "note":   # nur anbieten, wenn das Blatt Notizen lesen kann
+            inner = getattr(self._sheet, "note")   # AttributeError, wenn nicht
+            return lambda row, col: "" if (row, col) in self._cells else inner(row, col)
+        return getattr(self._sheet, name)
+
+    def grid(self, rows: int, cols: int):
+        grid = [list(r) for r in self._sheet.grid(rows, cols)]
+        for r, c in self._cells:
+            if r <= len(grid) and c <= len(grid[r - 1]):
+                grid[r - 1][c - 1] = None
+        return grid
+
+
+class ClearedWorkbook:
+    """Arbeitsmappe, in der die Zellen von `clears` als leer gelten – damit die Vorschau schon zeigt, was nach dem
+    Löschen eingetragen wird (kein Konflikt mit Werten, die ohnehin verschwinden)."""
+
+    def __init__(self, workbook: "WorkbookAccess", clears: list[ClearLine]):
+        self._workbook = workbook
+        self._cells: dict[str, set[tuple[int, int]]] = {}
+        for c in clears:
+            self._cells.setdefault(c.sheet, set()).add((c.row, c.col))
+
+    def sheet_names(self) -> list[str]:
+        return self._workbook.sheet_names()
+
+    def sheet(self, name: str):
+        sheet = self._workbook.sheet(name)
+        return _ClearedSheet(sheet, self._cells.get(sheet.name, set()))
+
+
+def apply_clear(workbook: "WorkbookAccess", clears: list[ClearLine]) -> tuple[int, int]:
+    """Leert die Zellen samt Notiz; liefert (Zellen mit Wert, Notizen) die gelöscht wurden."""
+    cells = notes = 0
+    for c in clears:
+        sheet = workbook.sheet(c.sheet)
+        clear = getattr(sheet, "clear_cell", None)
+        if clear:
+            clear(c.row, c.col)
+        else:   # Attrappe ohne eigenes Löschen
+            sheet.set_value(c.row, c.col, None)
+            if c.old_note.strip() and getattr(sheet, "set_note", None):
+                sheet.set_note(c.row, c.col, "")
+        cells += c.old is not None
+        notes += bool(c.old_note.strip())
+    return cells, notes
 
 
 class WorkbookAccess(Protocol):
@@ -841,6 +984,15 @@ class ComSheet:
             except Exception:  # noqa: BLE001 - die Größe ist nur Zierde
                 pass
         self._retry(write)
+
+    def clear_cell(self, row: int, col: int) -> None:
+        """Leert Wert und Notiz der Zelle (Zellformat und Rahmen bleiben)."""
+        def go():
+            cell = self._ws.Cells(row, col)
+            cell.ClearContents()
+            if cell.Comment is not None:
+                cell.Comment.Delete()
+        self._retry(go)
 
     def set_number_format(self, row: int, col: int, fmt: str) -> None:
         self._retry(lambda: setattr(self._ws.Cells(row, col), "NumberFormat", fmt))

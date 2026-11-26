@@ -1003,8 +1003,9 @@ class ReportPage(QWidget):
         form.addRow("Bis", self.last)
         form.addRow("Projekt", self.project)
         self.show_pauses = QCheckBox("Pausen-Einträge anzeigen und exportieren")
-        self.show_pauses.setToolTip("Aus (Standard): die Pausen fehlen in der Vorschau und im Blatt „Einträge“. "
-                                    "Die Tagesübersicht zählt sie immer.")
+        self.show_pauses.setToolTip("Aus (Standard): die Pausen fehlen in der Vorschau, im Blatt „Einträge“ und im PDF "
+                                    "(auch die Pausen-Summen in den Überschriften). An: sie erscheinen überall. "
+                                    "Die Tagesübersicht in Excel zählt sie immer.")
         self.show_pauses.toggled.connect(self._update)
         form.addRow("", self.show_pauses)
         box = QGroupBox("Spalten im Export (Blatt „Einträge“)")

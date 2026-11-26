@@ -198,9 +198,15 @@ class TimeService:
     def excel_exported(self, first: date, last: date) -> dict[tuple[str, str], float]:
         return self.db.excel_exported(self.excel_path, first.isoformat(), last.isoformat())
 
-    def mark_excel_exported(self, rows: list[tuple[date, str, float]]) -> None:
-        """Merkt sich eingetragene (Tag, Projektschlüssel, Stunden), damit sie nicht doppelt eingetragen werden."""
-        self.db.mark_excel_exported(self.excel_path, [(d.isoformat(), k, h) for d, k, h in rows])
+    def mark_excel_exported(self, rows: list[tuple]) -> None:
+        """Merkt sich eingetragene (Tag, Projektschlüssel, Stunden[, Nummer, Name]), damit sie nicht doppelt eingetragen
+        werden (und „Vorher löschen“ sie wiederfindet)."""
+        self.db.mark_excel_exported(self.excel_path, [(r[0].isoformat(), *r[1:]) for r in rows])
+
+    def excel_exported_projects(self, first: date, last: date) -> list[tuple[date, str, str]]:
+        """(Tag, Nummer, Name) von allem, was WorkPlanner im Zeitraum in diese Datei eingetragen hat."""
+        return [(date.fromisoformat(d), nr, name)
+                for d, nr, name in self.db.excel_exported_projects(self.excel_path, first.isoformat(), last.isoformat())]
 
     def clear_excel_exported(self, first: date, last: date) -> int:
         return self.db.clear_excel_exported(self.excel_path, first.isoformat(), last.isoformat())

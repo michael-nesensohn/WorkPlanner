@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 from ..excel_timesheet import (GRID_COLS, GRID_ROWS, PlanLine, RowSetup, SheetView, col_letter, display_text,
                                hours_text)
 
-NEW_BG, REPLACE_BG, SETUP_BG = QColor("#c6efce"), QColor("#fcd9a6"), QColor("#e2f0d9")
+NEW_BG, REPLACE_BG, SETUP_BG, CLEAR_BG = QColor("#c6efce"), QColor("#fcd9a6"), QColor("#e2f0d9"), QColor("#f6c7c7")
 
 
 def _number(v: float, as_time: bool = False) -> str:
@@ -33,8 +33,8 @@ class SheetPreview(QTableWidget):
         self.setVerticalHeaderLabels([str(r) for r in range(1, GRID_ROWS + 1)])
         self.setSelectionMode(QTableWidget.NoSelection)
 
-    def show_plan(self, view: SheetView, lines: list[PlanLine], setups: list[RowSetup]) -> None:
-        """`lines`/`setups` nur für dieses Blatt."""
+    def show_plan(self, view: SheetView, lines: list[PlanLine], setups: list[RowSetup], clears=()) -> None:
+        """`lines`/`setups`/`clears` nur für dieses Blatt. Rot: wird vor dem Eintragen gelöscht."""
         self.clearSpans()
         self.clearContents()
         for c in range(1, GRID_COLS + 1):
@@ -44,6 +44,11 @@ class SheetPreview(QTableWidget):
         over: dict[tuple[int, int], tuple[str, QColor, str]] = {}   # Zelle -> (Text, Farbe, Hinweis)
         for s in setups:
             over[s.row, s.col] = (s.value, SETUP_BG, "neue Projektzeile")
+        for c in clears:   # zuerst: ein neuer Wert an derselben Stelle überdeckt das Rot
+            note = c.old_note.strip()
+            over[c.row, c.col] = (f"{display_text(c.old)}  ✕" + (" 📝" if note else ""), CLEAR_BG,
+                                  f"wird gelöscht: {c.project} ({display_text(c.old) or 'leer'})"
+                                  + (f"\nNotiz: {note}" if note else ""))
         for ln in lines:
             if ln.overwrites:
                 over[ln.row, ln.col] = (f"{_number(ln.hours, ln.as_time)}  (bisher {_old(ln)})", REPLACE_BG,

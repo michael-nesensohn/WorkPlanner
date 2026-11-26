@@ -3,6 +3,21 @@
 Neueste Version zuerst. `dev-release.ps1` übernimmt den Abschnitt der neuen Version als Release-Text auf GitHub
 (`## <Version>`); er erscheint auch im Programm unter „Über WorkPlanner“, wenn ein Update bereitsteht.
 
+## 0.1.32
+- **Excel: „Vorher löschen und neu eintragen“** (Fenster „In Excel-Stundenzettel eintragen“): Auf Wunsch werden zuerst
+  die Stundenzellen samt Notizen geleert und dann alles neu eingetragen; die Merker des Zeitraums werden dabei
+  zurückgesetzt und neu gesetzt. Umfang wählbar: nur Zellen, die WorkPlanner eingetragen hat (von Hand geschriebene
+  Stunden bleiben), oder alle Stundenzellen im Zeitraum. Formeln, Summenzeilen, Projektnummern und Namen werden nie
+  angefasst. Die Vorschau zeigt rot, was gelöscht wird; vor dem Löschen wird nachgefragt (mit Hinweis, wenn keine
+  Sicherung eingestellt ist). Ist die Sicherung an, wird vorher eine Kopie angelegt.
+- **PDF-Export lesbarer**: Das PDF wird jetzt in 600 statt 120 dpi aufgebaut und rechnet die Schriftmaße in dieser
+  Auflösung. Die Buchstaben (besonders in fetter Schrift) stehen nicht mehr zu eng und verschmiert. Die eingestellten
+  Schriftgrößen (pt) gelten jetzt wirklich so; der Text wirkt dadurch etwas größer als vorher.
+- **Pausen im PDF wählbar**: Der Haken „Pausen-Einträge anzeigen und exportieren“ (Berichte) gilt jetzt auch für das PDF.
+  Aus (Standard): keine Pausen im PDF, auch nicht in der Kopfzeile und in den Tagesüberschriften. An: Pausen-Summen
+  dort, in der Zusammenfassung zusätzlich pro Tag der Block „Pausen“ mit den einzelnen Pausen, in der Einzelansicht
+  die Pausen-Zeilen.
+
 ## 0.1.31
 - **Notizen im Stundenzettel** (Einstellungen → Excel, auch im Eintragen-Fenster): Auf Wunsch bekommt jede Stundenzelle
   eine Excel-Notiz mit dem, was du für das Projekt an dem Tag in die Notiz-Felder geschrieben hast (nur Text, gleiche
